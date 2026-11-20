@@ -12,6 +12,8 @@
 *.apk
 *.aab
 *.log
+# VS Code の Java 拡張（Eclipse）が作るビルドの出力
+bin/
 
 # 提出用リポジトリの決まり（秘密情報・依存関係・OS とエディタ）
 .env
