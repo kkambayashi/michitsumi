@@ -7,6 +7,7 @@ DevFest GDGoC Japan Hackathon 2026 で、チーム Rein4ce（[@kkambayashi](http
 - ハッカソン時点の開発リポジトリ：https://github.com/suguru-t/Rein4ce-devfest-2026
 - ハッカソンの提出版：https://github.com/Devfest-Hackathon-2026/df-2026-t076
 - ライセンス：MIT（[LICENSE](LICENSE)）
+
 - アプリ：Kotlin / Jetpack Compose（`app`）
 - 共通ロジック：純 Kotlin（`core`）— パーツの形式、軌跡→パーツ変換、dyn4j 物理、サンプル、SVG
 - サーバ：Ktor（`server`）— Cloud Run に載せる。タワーの保存・共有ページ・一覧
@@ -33,21 +34,21 @@ DevFest GDGoC Japan Hackathon 2026 で、チーム Rein4ce（[@kkambayashi](http
    - サーバの接続先は書かなくてよい（本番サーバ `https://road-collector-415368216017.asia-northeast1.run.app` につながる）。手元のサーバにつなぐときだけ、Studio が作る `local.properties` に `SERVER_BASE_URL` を書く（`local.properties.example` と下の「サーバの接続先」を参照）
 3. Run。エミュレータでも実機でも可（minSdk 26）
 
-**発表・実機テストは release ビルドで**：debug ビルドは Compose が遅く、エミュレータで起動が約 4.5 秒かかる（release なら約 2 秒）。release もチーム共通の鍵で署名するので、地図もそのまま出て、debug ビルドの上に入れ替えられる。
+**発表・実機テストは release ビルドで**：debug ビルドは Compose が遅く、エミュレータで起動が約 4.5 秒かかる（release なら約 2 秒）。release も debug と同じ鍵（パソコンごとの標準のデバッグ鍵）で署名するので、debug ビルドの上に入れ替えられる。
 
 - Android Studio：左下の Build Variants で `app` を `release` にして Run
 - コマンド：`./gradlew :app:assembleRelease` → `app/build/outputs/apk/release/app-release.apk` を `adb install -r` で入れる
 - release ではブレークポイントで止めて調べることができない（Logcat のログは出る）。不具合を調べるときは debug に戻す
-- この鍵（`app/debug.keystore`）はリポジトリに入っていて誰でも使えるので、作った APK は**チームの外には配らない**（配ると、他の人も同じ鍵で「更新版」を作れてしまう）
+- 人に配るときやストアに出すときは、release の署名を本番用の鍵に替える（`app/build.gradle.kts` の `release`）
 
 ### 地図（Maps API キー）
 
-記録画面の地図は Google Maps で、`MAPS_API_KEY` が無いと軌跡だけを Canvas に描く。キーは A が管理している 1 つをチームで共有する（Slack で A から受け取る。**リポジトリには入れない**）。
+記録画面の地図は Google Maps で、`MAPS_API_KEY` が無いと軌跡だけを Canvas に描く。キーは自分の Google Cloud のプロジェクトで作る（**リポジトリには入れない**。キーの制限は下の箇条を参照）。
 
 **キーはパソコンに 1 回だけ書く**：パソコンのユーザーの Gradle の設定ファイルに 1 行足すと、そのパソコンのどのクローン・作業フォルダ（`git worktree`）でも読まれる。クローンし直しても書き直さなくてよい。
 
 - ファイル：Windows は `C:\Users\<ユーザー名>\.gradle\gradle.properties`、Mac / Linux は `~/.gradle/gradle.properties`（無ければ作る）
-- 書く行：`MAPS_API_KEY=AIza…`（Slack で受け取ったキー）
+- 書く行：`MAPS_API_KEY=AIza…`（自分で作ったキー）
 - Android Studio で開いているなら、書いたあとに Sync（「Sync Project with Gradle Files」）する
 - **リポジトリの中の `gradle.properties`（このフォルダのいちばん上にある、同じ名前のファイル）には書かない**。そちらは git に入るので、書くとキーが公開されてしまう（うっかり書いても、ビルドはそこからキーを読まないようにしてある）
 
@@ -55,11 +56,9 @@ DevFest GDGoC Japan Hackathon 2026 で、チーム Rein4ce（[@kkambayashi](http
 
 `local.properties` には SDK の場所（`sdk.dir`）も入っている。Android Studio で開けば作ってくれるが、`local.properties` の無い作業フォルダ（`git worktree`）をコマンドでビルドすると「SDK location not found」で止まることがある。そのときは、環境変数 `ANDROID_HOME` に SDK の場所を 1 回設定しておく（Windows は `%LOCALAPPDATA%\Android\Sdk`、Mac は `~/Library/Android/sdk`。Windows はシステムの環境変数、Mac は `~/.zshrc` などに書く）。
 
-- デバッグ署名はチーム共通の鍵 `app/debug.keystore`（パスワードは Android 標準と同じ `android`）。全員と GitHub Actions のビルドが同じ署名になるので、キーの「Android アプリ」制限にはこの鍵の SHA-1 だけ登録してある。自分の PC で作った鍵は使わない
-- 同じ署名なので、手元のビルドと Actions の APK を同じ端末に入れ替えてもアンインストールは要らない
-- **共通の鍵になる前のビルド（2026-11-06 以前）が入っている端末・エミュレータは、最初の 1 回だけアンインストールしてから入れる**（署名が変わるため）。アンインストールするとコレクション（集めたパーツ）も消えるので、残したいものがあれば先にタワーをサーバに送るなどしておく
-- キーは「API の制限」で Maps SDK for Android だけに絞ってある（リポジトリが公開で、Actions の APK からキーを取り出せるため。地図の表示は課金されない）
-- 鍵を作り直したときは、Google Cloud Console のキーの制限に新しい SHA-1 を登録し直す（`keytool -list -v -keystore app/debug.keystore -storepass android` で出る）
+- デバッグ署名は、パソコンごとの Android 標準のデバッグ鍵（`~/.android/debug.keystore`。Android Studio が作る）。Maps API キーの「Android アプリ」制限には、パッケージ名 `com.rein4ce.roadcollector` と、この鍵の SHA-1 を登録する（`keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android` で出る）
+- キーは「API の制限」で Maps SDK for Android だけに絞る（リポジトリが公開で、配った APK からキーを取り出せるため。地図の表示は課金されない）
+- **2026-11-20 より前のビルド（ハッカソンのチーム共通の鍵で署名したもの）が入っている端末・エミュレータは、最初の 1 回だけアンインストールしてから入れる**（署名が変わるため）。アンインストールするとコレクション（集めたパーツ）も消える
 
 実機で GPS を試すときは、権限ダイアログで「アプリの使用中のみ許可」でよい（バックグラウンド権限は使わない）。
 エミュレータで歩くには Extended Controls → Location で GPX を再生するか、アプリ内の「デモ散歩」を使う。
@@ -100,8 +99,8 @@ main への push とプルリクエストのたびに、`core`・`server`・`app
 
 ビルドした APK は、各実行結果ページの Artifacts にある `app-debug.apk` からダウンロードできる（GitHub へのログインが必要。14 日間保存）。
 
-- この APK は本番サーバにつながる。リポジトリの Secrets に `MAPS_API_KEY` が入っていれば地図も出る（無ければ軌跡を Canvas で描く）
-- 署名はチーム共通の `app/debug.keystore` なので、手元でビルドしたアプリが入っている端末にもそのまま上書きで入る
+- この APK は本番サーバにつながる。地図は出ない（署名が GitHub の実行環境のデバッグ鍵になり、キーの制限に登録した手元の鍵と違うため。軌跡を Canvas で描く）
+- 手元でビルドしたアプリとも署名が違うので、同じ端末に入れるときは一度アンインストールする
 
 ## 構成と担当
 

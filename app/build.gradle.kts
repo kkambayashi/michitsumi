@@ -50,12 +50,9 @@ android {
         buildConfigField("String", "SERVER_BASE_URL", "\"$serverBaseUrl\"")
     }
 
-    // デバッグ署名はチーム共通の鍵（app/debug.keystore）を使う。
-    // 全員と GitHub Actions のビルドが同じ署名になるので、Maps API キーの「Android アプリ」制限に
-    // この鍵の SHA-1 を 1 つ登録すれば、誰のビルドでも地図が出る。端末に入れ替えるときのアンインストールも要らない。
-    // デバッグ用なので秘密ではない（パスワードは Android 標準と同じ "android"）。
-    // 提出用の公開リポジトリには、鍵（app/debug.keystore）をコミットしない（運営の決まり）。
-    // 置いてあればそれを使い、無ければ Android の標準のデバッグ鍵（~/.android/debug.keystore）で署名する
+    // デバッグ署名は Android の標準のデバッグ鍵（~/.android/debug.keystore。パソコンごとに違う）を使う。
+    // ハッカソンのときはチーム共通の鍵（app/debug.keystore）をリポジトリに入れて全員の署名をそろえていたが、外した。
+    // その名前の鍵が置いてあれば今もそれを使う（下の if）。デバッグ用なので秘密ではない（パスワードは Android 標準と同じ "android"）
     signingConfigs {
         getByName("debug") {
             val teamKey = file("debug.keystore")
@@ -70,7 +67,7 @@ android {
 
     buildTypes {
         release {
-            // 発表・実機テスト用に、release もチーム共通の鍵（debug と同じ）で署名する。
+            // 実機テスト用に、release も debug と同じ鍵で署名する。
             // debug ビルドは Compose が遅く、エミュレータで測ると起動が約 4.5 秒 → release で約 2 秒になった。
             // 同じ鍵なので、Maps API キーの制限（この鍵の SHA-1）のまま地図が出て、debug ビルドの上にそのまま入れ替えられる。
             // ストアに出すときは、ここを本番用の鍵に替える
