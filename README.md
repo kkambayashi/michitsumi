@@ -1,8 +1,12 @@
-# ミチツミ（michitsumi）— デモ版
+# ミチツミ（michitsumi）
 
-歩いた軌跡を積み木パーツに変えて、バランスを取りながらタワーを積む Android アプリ。
-ハッカソン用の **「少し動くデモ版」** で、4 人で分担する前の共通基盤です。
+歩いた道の形を積み木のパーツにして、バランスを取りながら塔を積む散歩アプリ（Android）。
 
+DevFest GDGoC Japan Hackathon 2026 で、チーム Rein4ce（[@kkambayashi](https://github.com/kkambayashi)・[@mintBomber](https://github.com/mintBomber)・[@atvani](https://github.com/atvani)・[@suguru-t](https://github.com/suguru-t)）が 4 人で開発したものを元に、ハッカソン後からは [@kkambayashi](https://github.com/kkambayashi) が個人で開発を続けています。
+
+- ハッカソン時点の開発リポジトリ：https://github.com/suguru-t/Rein4ce-devfest-2026
+- ハッカソンの提出版：https://github.com/Devfest-Hackathon-2026/df-2026-t076
+- ライセンス：MIT（[LICENSE](LICENSE)）
 - アプリ：Kotlin / Jetpack Compose（`app`）
 - 共通ロジック：純 Kotlin（`core`）— パーツの形式、軌跡→パーツ変換、dyn4j 物理、サンプル、SVG
 - サーバ：Ktor（`server`）— Cloud Run に載せる。タワーの保存・共有ページ・一覧

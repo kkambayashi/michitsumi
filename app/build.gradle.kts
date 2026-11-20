@@ -54,12 +54,17 @@ android {
     // 全員と GitHub Actions のビルドが同じ署名になるので、Maps API キーの「Android アプリ」制限に
     // この鍵の SHA-1 を 1 つ登録すれば、誰のビルドでも地図が出る。端末に入れ替えるときのアンインストールも要らない。
     // デバッグ用なので秘密ではない（パスワードは Android 標準と同じ "android"）。
+    // 提出用の公開リポジトリには、鍵（app/debug.keystore）をコミットしない（運営の決まり）。
+    // 置いてあればそれを使い、無ければ Android の標準のデバッグ鍵（~/.android/debug.keystore）で署名する
     signingConfigs {
         getByName("debug") {
-            storeFile = file("debug.keystore")
-            storePassword = "android"
-            keyAlias = "androiddebugkey"
-            keyPassword = "android"
+            val teamKey = file("debug.keystore")
+            if (teamKey.exists()) {
+                storeFile = teamKey
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
         }
     }
 
