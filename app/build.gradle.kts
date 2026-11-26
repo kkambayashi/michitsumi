@@ -1,8 +1,8 @@
 import java.util.Properties
 
+// AGP 9 から Kotlin のコンパイルは AGP 自身が受け持つので、org.jetbrains.kotlin.android は付けない（付けるとエラーになる）
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }

@@ -1,11 +1,11 @@
 [versions]
 # --- ビルドツール ---
-agp = "8.11.1"
-kotlin = "2.1.21"
+agp = "9.5.3"
+kotlin = "2.4.21"
 jib = "3.4.5"
 
 # --- Android / Compose ---
-compileSdk = "35"
+compileSdk = "37"
 minSdk = "26"
 targetSdk = "35"
 composeBom = "2025.06.00"
@@ -80,7 +80,6 @@ kotlin-test = { group = "org.jetbrains.kotlin", name = "kotlin-test", version.re
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
