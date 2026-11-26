@@ -1,15 +1,19 @@
 # ライブラリの新しい版が出ていたら、月に 1 回、Dependabot に更新の PR を出してもらう。
-# 一人で見るので、種類ごとに 1 つの PR にまとめる（PR では CI が走るので、通ればそのまま取り込める）。
+# 一人で見るので、なるべく PR をまとめる（PR では CI が走るので、通ればそのまま取り込める）。
 version: 2
 updates:
-  # Gradle：core・app・server（ルートの settings.gradle.kts）と、版の一覧 gradle/libs.versions.toml。Gradle 本体（wrapper）も含む
+  # Gradle：core・app・server（ルートの settings.gradle.kts）と、版の一覧 gradle/libs.versions.toml。Gradle 本体（wrapper）も含む。
+  # 小さな更新（minor・patch）だけを 1 つの PR にまとめ、大きな更新（メジャー）は 1 つずつ別の PR にする。
+  # 全部を 1 つにまとめたら、AGP 9 のようにコードの書き換えが要る更新に引っぱられて、ほかの更新まで取り込めなくなったため（#1）
   - package-ecosystem: gradle
     directory: /
     schedule:
       interval: monthly
+    # メジャーの PR が別々に開くので、既定の 5 より多くしておく
+    open-pull-requests-limit: 10
     groups:
-      gradle:
-        patterns: ["*"]
+      gradle-minor-patch:
+        update-types: ["minor", "patch"]
 
   # CI（.github/workflows）で使っている actions/checkout などの版
   - package-ecosystem: github-actions
