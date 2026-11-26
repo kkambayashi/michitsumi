@@ -27,7 +27,7 @@ logback = "1.6.8"
 genai = "1.57.0"
 firestore = "3.53.0"
 junit = "4.13.2"
-reorderable = "2.5.1"
+reorderable = "3.1.0"
 
 [libraries]
 # Android
