@@ -2,7 +2,7 @@
 # --- ビルドツール ---
 agp = "9.5.3"
 kotlin = "2.4.21"
-jib = "3.4.5"
+jib = "3.5.4"
 
 # --- Android / Compose ---
 compileSdk = "37"
@@ -10,22 +10,22 @@ minSdk = "26"
 targetSdk = "35"
 composeBom = "2025.06.00"
 activityCompose = "1.10.1"
-navigationCompose = "2.9.0"
+navigationCompose = "2.10.2"
 lifecycle = "2.9.0"
 coreKtx = "1.16.0"
 
 # --- Google ---
-playServicesLocation = "21.3.0"
+playServicesLocation = "21.4.0"
 mapsCompose = "6.4.1"
 
 # --- 共通ライブラリ ---
-coroutines = "1.10.2"
-serializationJson = "1.8.1"
+coroutines = "1.11.0"
+serializationJson = "1.13.0"
 dyn4j = "6.0.0"
-ktor = "3.1.3"
-logback = "1.5.18"
+ktor = "3.6.1"
+logback = "1.6.8"
 genai = "1.57.0"
-firestore = "3.43.0"
+firestore = "3.53.0"
 junit = "4.13.2"
 reorderable = "2.5.1"
 
