@@ -36,7 +36,12 @@ val serverBaseUrl: String = localProps.getProperty("SERVER_BASE_URL")?.trim().or
 
 android {
     namespace = "com.rein4ce.roadcollector"
-    compileSdk = libs.versions.compileSdk.get().toInt()
+    // 版の一覧の compileSdk は「37.1」のように、小数点の後ろ（API の小さな改訂）まで書ける。
+    // Compose 1.13 からは 37.1 以上でないとビルドが通らない
+    compileSdk {
+        val (major, minor) = libs.versions.compileSdk.get().split(".").let { it[0].toInt() to (it.getOrNull(1)?.toInt() ?: 0) }
+        version = release(major) { minorApiLevel = minor }
+    }
 
     defaultConfig {
         applicationId = "com.rein4ce.roadcollector"
