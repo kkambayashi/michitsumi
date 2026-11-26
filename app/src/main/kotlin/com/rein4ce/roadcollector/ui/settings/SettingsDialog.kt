@@ -32,11 +32,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
+import androidx.compose.material3.SliderState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -293,8 +293,6 @@ private fun onOff(on: Boolean) = if (on) "オン" else "オフ"
  * 背景の天気の動きを選ぶスライダー（左ほど動きが少ない）。目盛りの下に段階の名前、その下に選んでいる段階の説明。
  * 動かすとすぐに効く（後ろの天気が変わる）。段階の名前を押しても選べる
  */
-// つまみを積み木のブロックにするため、つまみを差し替えられる Slider を使う（Material ではまだ試験中の形）
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MotionSlider(motion: WeatherMotion, onChange: (WeatherMotion) -> Unit) {
     val stops = WeatherMotion.entries
@@ -314,13 +312,11 @@ private fun MotionSlider(motion: WeatherMotion, onChange: (WeatherMotion) -> Uni
                 minOf(14.sp.toPx(), (cell - LabelPadding * 2).toPx() / (longest + 0.5f)).toSp()
             }
             Column {
-                Slider(
+                PopSlider(
                     value = motion.ordinal.toFloat(),
                     onValueChange = { select(it.roundToInt()) },
                     valueRange = 0f..stops.lastIndex.toFloat(),
                     steps = stops.size - 2,
-                    colors = popSliderColors(),
-                    thumb = { PopSliderThumb() },
                     modifier = Modifier
                         .padding(horizontal = (cell / 2 - SliderThumbHalfWidth).coerceAtLeast(0.dp))
                         .semantics {
@@ -371,8 +367,6 @@ private fun MotionSlider(motion: WeatherMotion, onChange: (WeatherMotion) -> Uni
  * オフのときは、曲と音量をうすくして選べない。説明、いちばん下に「初期設定に戻す」（オン・トコトコ・音量 [AppSettings.DEFAULT_BGM_VOLUME]）。
  * 選ぶ・動かすとすぐに音が変わる（曲は、新しい曲の頭から流れる）
  */
-// つまみを積み木のブロックにするため、つまみを差し替えられる Slider を使う（Material ではまだ試験中の形）
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun BgmPage(
     on: Boolean,
@@ -393,14 +387,12 @@ private fun BgmPage(
             Text("音量", fontFamily = Pop.Rounded, fontWeight = FontWeight.Black, fontSize = 15.sp, color = Fieldbook.Ink, modifier = Modifier.weight(1f))
             Text("$volume", fontFamily = Pop.Rounded, fontWeight = FontWeight.Black, fontSize = 17.sp, color = Pop.TealLine)
         }
-        Slider(
+        PopSlider(
             value = volume.toFloat(),
             onValueChange = { v -> v.roundToInt().let { if (it != volume) onVolumeChange(it) } },
             valueRange = 1f..AppSettings.MAX_BGM_VOLUME.toFloat(),
             steps = AppSettings.MAX_BGM_VOLUME - 2,
             enabled = on,
-            colors = popSliderColors(),
-            thumb = { PopSliderThumb(enabled = on) },
             modifier = Modifier.semantics {
                 contentDescription = "BGM の音量"
                 stateDescription = "${AppSettings.MAX_BGM_VOLUME} 段階の $volume"
@@ -606,3 +598,29 @@ private fun popSliderColors() = SliderDefaults.colors(
     disabledInactiveTrackColor = Fieldbook.CardEdge,
     disabledInactiveTickColor = Fieldbook.Muted,
 )
+
+/**
+ * 値で持つスライダー。つまみは積み木のブロック（[PopSliderThumb]）、色は [popSliderColors]。
+ * material3 1.5 から、つまみを差し替えられる Slider は SliderState を渡す形だけになった。
+ * そこで、material3 の値で持つ Slider の中身と同じく、状態を覚えておいて毎回 [value] を入れ直す（動かすと [onValueChange] が呼ばれる）
+ */
+@Composable
+private fun PopSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    valueRange: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+) {
+    val state = remember(steps, valueRange) { SliderState(value, steps, valueRange) }
+    state.value = value
+    Slider(
+        state = state,
+        onValueChange = onValueChange,
+        modifier = modifier,
+        enabled = enabled,
+        colors = popSliderColors(),
+        thumb = { PopSliderThumb(enabled = enabled) },
+    )
+}
