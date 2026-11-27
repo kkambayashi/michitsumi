@@ -5,7 +5,7 @@ import io.ktor.server.application.ApplicationCall
 import io.ktor.server.request.contentLength
 import io.ktor.server.request.receiveChannel
 import io.ktor.server.response.respond
-import io.ktor.utils.io.readRemaining
+import io.ktor.utils.io.readBuffer
 import kotlinx.io.readByteArray
 
 /**
@@ -33,7 +33,7 @@ internal suspend fun ApplicationCall.receiveTextWithin(maxBytes: Long): String? 
         respond(HttpStatusCode.PayloadTooLarge, "body too large (> $maxBytes bytes)")
         return null
     }
-    val bytes = receiveChannel().readRemaining(maxBytes + 1).readByteArray()
+    val bytes = receiveChannel().readBuffer(maxBytes + 1).readByteArray()
     if (bytes.size > maxBytes) {
         respond(HttpStatusCode.PayloadTooLarge, "body too large (> $maxBytes bytes)")
         return null

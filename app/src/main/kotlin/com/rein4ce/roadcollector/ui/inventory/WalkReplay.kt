@@ -135,7 +135,7 @@ internal fun replaySpeed(distanceM: Int): Int? {
 
 /** 再生を始めてから [tMs] たったときに、足跡が進んだ歩数。1 歩ずつ、踏み出して止まる（記録画面の足跡と同じ動き方） */
 private fun stepsAt(tMs: Long): Float {
-    val x = tMs / STEP_MS.toFloat()
+    val x = tMs / STEP_MS
     val n = floor(x)
     return n + FastOutSlowInEasing.transform(x - n)
 }

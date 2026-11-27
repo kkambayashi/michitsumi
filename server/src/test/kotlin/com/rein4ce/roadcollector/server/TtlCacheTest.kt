@@ -1,6 +1,7 @@
 package com.rein4ce.roadcollector.server
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -8,6 +9,7 @@ import kotlin.test.assertEquals
 import org.junit.Test
 
 /** 一覧を覚えておく入れ物（決定 88） */
+@OptIn(ExperimentalCoroutinesApi::class) // runCurrent（試験中の API）で、裏の処理を進めてから確かめる
 class TtlCacheTest {
 
     @Test
