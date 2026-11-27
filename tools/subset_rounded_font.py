@@ -23,7 +23,7 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-APP = ROOT / "app/src/main/kotlin/com/rein4ce/roadcollector"
+APP = ROOT / "app/src/main/kotlin/io/github/kkambayashi/michitsumi"
 OUT = ROOT / "app/src/main/res/font/mplus_rounded_ui.ttf"
 
 # 字を集める .kt（フォルダなら中の .kt 全部）
@@ -47,7 +47,7 @@ SOURCES = [
     APP / "ui/game/ChallengeScreen.kt",
     APP / "ui/game/RotateButtons.kt",
     # 3 分チャレンジの形の名前（棒・L字…。情報の段の「次」に出す）
-    ROOT / "core/src/main/kotlin/com/rein4ce/roadcollector/core/challenge/ChallengeRun.kt",
+    ROOT / "core/src/main/kotlin/io/github/kkambayashi/michitsumi/core/challenge/ChallengeRun.kt",
     # 名前を付ける窓（「保存」「AI に考えてもらう」。パーツの名前とニックネーム）
     APP / "ui/common/NameField.kt",
     # 積む画面のモードを選ぶ画面（画面名「みちをつむ」・モードの名前と一言・記録・「‹ 戻る」）
@@ -57,7 +57,7 @@ SOURCES = [
     # 並びの名前（いつもの順・長い順…）
     APP / "data/PartFilter.kt",
     # 天気の名前（晴れ・霧雨…）
-    ROOT / "core/src/main/kotlin/com/rein4ce/roadcollector/core/weather/Weather.kt",
+    ROOT / "core/src/main/kotlin/io/github/kkambayashi/michitsumi/core/weather/Weather.kt",
 ]
 
 # 半角の英数字・記号と、数字まわりの記号

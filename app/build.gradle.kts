@@ -35,7 +35,7 @@ val serverBaseUrl: String = localProps.getProperty("SERVER_BASE_URL")?.trim().or
     .ifEmpty { "https://road-collector-415368216017.asia-northeast1.run.app" }
 
 android {
-    namespace = "com.rein4ce.roadcollector"
+    namespace = "io.github.kkambayashi.michitsumi"
     // 版の一覧の compileSdk は「37.1」のように、小数点の後ろ（API の小さな改訂）まで書ける。
     // Compose 1.13 からは 37.1 以上でないとビルドが通らない
     compileSdk {
@@ -44,7 +44,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.rein4ce.roadcollector"
+        applicationId = "io.github.kkambayashi.michitsumi"
         minSdk = libs.versions.minSdk.get().toInt()
         targetSdk = libs.versions.targetSdk.get().toInt()
         versionCode = 1

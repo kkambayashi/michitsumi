@@ -18,8 +18,8 @@ from pathlib import Path
 from fontTools import subset
 
 ROOT = Path(__file__).resolve().parent.parent
-SHARE_PAGE = ROOT / "server/src/main/kotlin/com/rein4ce/roadcollector/server/SharePage.kt"
-PART = ROOT / "core/src/main/kotlin/com/rein4ce/roadcollector/core/model/Part.kt"
+SHARE_PAGE = ROOT / "server/src/main/kotlin/io/github/kkambayashi/michitsumi/server/SharePage.kt"
+PART = ROOT / "core/src/main/kotlin/io/github/kkambayashi/michitsumi/core/model/Part.kt"
 OUT = ROOT / "server/src/main/resources/fonts/share-rounded.woff"
 
 

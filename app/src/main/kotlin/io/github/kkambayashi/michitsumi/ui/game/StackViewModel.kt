@@ -1,0 +1,501 @@
+package io.github.kkambayashi.michitsumi.ui.game
+
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import io.github.kkambayashi.michitsumi.core.model.Part
+import io.github.kkambayashi.michitsumi.core.model.Tower
+import io.github.kkambayashi.michitsumi.core.model.TowerCreated
+import io.github.kkambayashi.michitsumi.core.physics.Grip
+import io.github.kkambayashi.michitsumi.core.physics.PartGeometry
+import io.github.kkambayashi.michitsumi.core.physics.PartSize
+import io.github.kkambayashi.michitsumi.core.physics.StackWorld
+import io.github.kkambayashi.michitsumi.core.physics.WeatherBonus
+import io.github.kkambayashi.michitsumi.core.physics.enlarged
+import io.github.kkambayashi.michitsumi.data.PartOrigin
+import io.github.kkambayashi.michitsumi.data.WalkDistance
+import io.github.kkambayashi.michitsumi.data.walkDistance
+import io.github.kkambayashi.michitsumi.net.ApiClient
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import kotlin.math.hypot
+import kotlin.math.max
+import kotlin.random.Random
+
+/**
+ * D 担当：積み上げゲーム（通常モード）の進行。物理は :core の StackWorld、ここは「ターン」の管理。
+ *
+ * 通常モード（決定 62・#108）：コレクションの全部のパーツから、ランダムに 1 つずつ出す（同じパーツが何度出てもよい）。
+ * 置いたら次が出て、終わりなく続く。パーツが 1 つでも台から落ちたら終わりで、塔が落ち着くのを待ってから、そのときの高さで結果を固定する。
+ *
+ * 終わったときに台の上に残っていたパーツの天気（すべりやすさ）で、模型を大きくする（天気のボーナス。[WeatherBonus]・決定 68）。
+ * 記録する高さと「みんな」に送るタワーは、大きくしたあとのもの（[StackResult.finalHeight]・[StackResult.uploadTower]）
+ *
+ * Placing    … 出てきた 1 個をドラッグ・回転して、指を離して落とす（決定 67。前は「置く」のボタン）
+ * Settling   … 落下中。塔全体が止まったら次へ（落ちたパーツがあれば終わり）。落ちたパーツは、落ちた時点で取り除いて数える
+ * Finished   … パーツが落ちて終わり、塔全体が止まったのを確かめた。結果（[result]）を固定し、物理も止める
+ * Unresolved … 終わったあと、上限の時間までに塔が止まらなかった（判定できない）。結果は見せるが送信はできない
+ */
+class StackViewModel(
+    /** 落下待ちの時間。テストで短くできるように差し替えられる */
+    private val settleTiming: SettleTiming = SettleTiming(),
+    /** 次に出すパーツを選ぶ乱数。テストで出る順を決められるように差し替えられる */
+    private val random: Random = Random.Default,
+    private val postTower: suspend (Tower) -> TowerCreated = { ApiClient.postTower(it) },
+) : ViewModel() {
+
+    enum class Phase { Idle, Placing, Settling, Finished, Unresolved }
+
+    /**
+     * 落下待ちの決まり。[minSeconds] より前は止まっていても次へ進まない（置いた直後の一瞬の静止を拾わないため）。
+     * [maxSeconds] までに止まらなければ時間切れ：途中のパーツならそのまま次へ（最後の判定で塔全体をもう一度確かめる）、
+     * 最後のパーツなら [Phase.Unresolved]
+     */
+    data class SettleTiming(val minSeconds: Double = 0.8, val maxSeconds: Double = 6.0)
+
+    /**
+     * ゲームの結果。終わって塔が落ち着いた瞬間に 1 つにまとめて固定し、終わりの表示と送信の両方がこれを使う（以後の tick では変わらない）。
+     *
+     * [tower] の parts は同じパーツを 1 つにまとめ、placements は置いた数だけ並ぶ（同じパーツが何度も出るため。サーバは同じ id の
+     * パーツが 2 つあると断る）。
+     *
+     * @property usedCount   このゲームで置いたパーツの数
+     * @property fallenCount 落ちたパーツの数（置いたあとに崩れて落ちたものも含む）
+     * @property settled     終わったあと、塔全体が止まったのを確かめられたか
+     * @property walked      置いたパーツ（落ちたものも含む。同じパーツは 1 回）のうち、本当に歩いた道の距離
+     * @property tower       物理で積んだままの塔（大きくする前。画面の物理の形と同じ）
+     * @property bonus       天気のボーナス（台の上に残っていたパーツの天気から。決定 68）
+     * @property bonusMarks  ボーナスの付いたパーツ（くもり・雨・雪）の、すべりやすさと位置。低い順。
+     *   終わったときに、1 つずつ上に「雪 +0.20」の札を出してから塔を大きくする（なぜ大きくなったか分かるように）
+     */
+    data class StackResult(
+        val tower: Tower,
+        val usedCount: Int,
+        val fallenCount: Int,
+        val settled: Boolean,
+        val walked: WalkDistance = WalkDistance.NONE,
+        val bonus: WeatherBonus.Result = WeatherBonus.NONE,
+        val bonusMarks: List<StackWorld.PlacedMark> = emptyList(),
+    ) {
+        /** 天気のボーナスで大きくしたあとの模型の高さ [m]。終わりのカード・高さのメーター・自分の最高に使う */
+        val finalHeight: Float get() = (tower.height * bonus.multiplier).toFloat()
+
+        /** 「みんな」に送るタワー：天気のボーナスの倍率で、塔ごと大きくしたもの（台の上面のまん中を中心に） */
+        val uploadTower: Tower get() = tower.enlarged(bonus.multiplier)
+
+        /** 台の上に残ったパーツの数（同じパーツを何度も置いたら、その数だけ） */
+        val remainingCount: Int get() = tower.placements.size
+
+        /** サーバに送れるか。止まったのを確かめられなかった結果と、パーツが 1 つも残らなかった結果は送らない（空のタワーはサーバが 400 で断る：#58） */
+        val canUpload: Boolean get() = settled && tower.placements.isNotEmpty()
+    }
+
+    private var world = newWorld()
+
+    /**
+     * このゲームで出すパーツ（始めたときのコレクションの全部。スナップショット）。ここからランダムに 1 つずつ出す
+     * （途中でコレクションのパーツを消したり名前を変えたりしても、始めたゲームには入れない。「やり直す」で取り直す）
+     */
+    var pool: List<Part> = emptyList()
+        private set
+
+    /** このゲームで置いたパーツ（置いた順。同じパーツが何度も入る） */
+    private val placedSequence = mutableListOf<Part>()
+
+    /** 始めたときのパーツの出どころ（「使った道」を数えるため。終わったときに、置いたパーツだけで数える） */
+    private var sessionOrigins: Map<String, PartOrigin> = emptyMap()
+
+    /** パーツが台から落ちて、このゲームは終わった（塔が落ち着くのを待っている、または終わった） */
+    private var gameOver = false
+
+    /** 遊び方を選ぶ画面へ戻ってゲームを止めた（[leave]）。次にこの画面を開いたら、そのときのコレクションで新しいゲームを始める */
+    private var startOnNextOpen = false
+
+    var runId: Long by mutableStateOf(0L)
+        private set
+
+    /** 置き切ったときに固定した結果（[Phase.Finished] / [Phase.Unresolved] のときだけ入っている） */
+    var result: StackResult? by mutableStateOf(null)
+        private set
+
+    var startMessage: String? by mutableStateOf(null)
+        private set
+
+    var phase: Phase by mutableStateOf(Phase.Idle)
+        private set
+    var current: Part? by mutableStateOf(null)
+        private set
+
+    /** このゲームで置いたパーツの数 */
+    var placedCount: Int by mutableStateOf(0)
+        private set
+
+    /** このゲームで、あと何回チェンジ（狙っているパーツを別のパーツに替える）できるか（[CHANGES_PER_GAME] 回から） */
+    var changesLeft: Int by mutableStateOf(CHANGES_PER_GAME)
+        private set
+
+    /** いまチェンジできるか（狙っている間で、残りの回数があり、ほかに替えられるパーツがある） */
+    val canChange: Boolean get() = phase == Phase.Placing && current != null && changesLeft > 0 && pool.size > 1
+    var shapes: List<StackWorld.RenderShape> by mutableStateOf(emptyList())
+        private set
+    var height: Float by mutableStateOf(0f)
+        private set
+    var fallenCount: Int by mutableStateOf(0)
+        private set
+
+    /** いま台の上に残っているパーツの天気のボーナス（パーツが止まったときに数え直す。終わったときは [StackResult.bonus] と同じ） */
+    var bonus: WeatherBonus.Result by mutableStateOf(WeatherBonus.NONE)
+        private set
+
+    /** ゴースト（置く前のパーツ）の位置と角度。x [m]、角度は度（反時計回り正） */
+    var ghostX: Float by mutableStateOf(0f)
+        private set
+    var ghostAngleDeg: Float by mutableStateOf(0f)
+        private set
+
+    /** 送信結果の表示用 */
+    var uploadMessage: String? by mutableStateOf(null)
+        private set
+    var uploading: Boolean by mutableStateOf(false)
+        private set
+
+    /** #39の一回送信をrun単位で管理し、古い送信結果を次のゲームへ持ち越さない。 */
+    private var uploadedRunId: Long? by mutableStateOf(null)
+
+    /** いま完成しているタワーが送信済みか。送信済みならボタンを押せなくする */
+    val uploaded: Boolean get() = result != null && uploadedRunId == runId
+
+    /** いまの結果をサーバに送れるか（完成して、塔が止まったのを確かめられ、パーツが残っている） */
+    val canUpload: Boolean get() = phase == Phase.Finished && result?.canUpload == true
+
+    /** 落下を待ち始めてから進めた時間 [s]。1 フレームの上限（[MAX_FRAME_SECONDS]）をかけた時間を足すので、物理の進みと合う */
+    private var settleTimer = 0.0
+
+    val platformWidth: Double get() = world.platformWidth
+
+    /** ゴーストを左右に動かせる範囲 [m]（台の端から [DRAG_MARGIN_M] 外まで） */
+    val dragLimit: Float get() = (platformWidth / 2 + DRAG_MARGIN_M).toFloat()
+
+    /**
+     * カメラの狙い（[CameraTarget]）。パーツが止まったときと始めたときだけ変わる（[nextPart]）。
+     * 狙っている間（ドラッグ・回転）と落下中は変えないので、指で動かしている最中にカメラが動かない
+     */
+    var camera: CameraTarget by mutableStateOf(CameraTarget.Follow(0f))
+        private set
+
+    /** ゴーストを出す高さ [m]（タワーの上 1.5 m） */
+    fun spawnY(): Float = height + 1.5f
+
+    /**
+     * コレクションの通知を受け取る。読み込みが済んでいて、まだ一度も始めていなければ、コレクションの全部のパーツで始める。
+     * 一覧が変わっただけではゲームを始め直さない（始めたゲームのパーツは [pool] のまま。「やり直す」で取り直す）。
+     *
+     * @param inventory コレクションに見えているパーツ（見本は、設定の「見本のパーツを出す」に合わせて入る）
+     * @param origins   パーツの出どころ（PartRepository.origins）。終わったときに「使った道」を数えるのに使う
+     */
+    fun updateInventory(
+        inventory: List<Part>,
+        isLoaded: Boolean,
+        origins: Map<String, PartOrigin> = emptyMap(),
+    ) {
+        if (!isLoaded) return
+        if ((runId == 0L || startOnNextOpen) && inventory.isNotEmpty()) start(inventory, origins)
+    }
+
+    /**
+     * パーツが落ちて終わり、塔が落ち着くのを待っている途中なら、その場で落ち着くまで進めて結果を決める（ゲームは終わった形のまま残す）。
+     * 画面を離れると物理が止まるので、離れるとき（「‹ 戻る」・ほかのタブへ移る）に呼んで、その回を自分の最高に数える
+     * （#130 の C のレビュー・#139 の A のレビュー）。
+     *
+     * @return 自分の最高に数えてよい結果（終わって塔が止まり、道が残ったとき）。まだ終わっていない・数えられない結果なら null
+     */
+    fun settleNow(): StackResult? {
+        if (gameOver && phase == Phase.Settling) {
+            // 待つ上限（maxSeconds）までに必ず終わるので、そのぶんだけ回す
+            val steps = (settleTiming.maxSeconds / SETTLE_NOW_STEP_SECONDS).toInt() + 2
+            repeat(steps) { if (phase == Phase.Settling) tick(SETTLE_NOW_STEP_SECONDS) }
+        }
+        return result?.takeIf { canUpload }
+    }
+
+    /**
+     * 遊び方を選ぶ画面へ戻る（「‹ 戻る」・端末の「戻る」。決定 76）。このゲームは終わりにして止め、次にこの画面を開いたときに、
+     * そのときのコレクションで新しいゲームを始める（[updateInventory]。前は戻った時点のコレクションですぐ始め直していたので、
+     * 戻ってから道を記録しても出なかった）。
+     * パーツが落ちて終わり、塔が落ち着くのを待っている途中なら、その場で落ち着くまで進めて結果を決める
+     * （画面を離れると物理が止まり、その回が自分の最高に数えられなかったため。#130 の C のレビュー）。
+     *
+     * @return 自分の最高に数えてよい結果（終わって塔が止まり、道が残ったとき）。無ければ null
+     */
+    fun leave(): StackResult? {
+        if (phase == Phase.Idle) return null
+        val done = settleNow()
+        phase = Phase.Idle
+        current = null
+        startMessage = null
+        startOnNextOpen = true
+        return done
+    }
+
+    /**
+     * 「やり直す」「もう一度」。今のコレクションの全部のパーツで始め直す。
+     * コレクションが空なら、いまのゲームはそのままにして案内を出す。
+     * @param origins パーツの出どころ（[updateInventory] と同じ）
+     */
+    fun restart(inventory: List<Part>, origins: Map<String, PartOrigin> = emptyMap()) {
+        if (phase == Phase.Idle) return
+        if (inventory.isEmpty()) {
+            startMessage = MESSAGE_COLLECTION_EMPTY
+            return
+        }
+        start(inventory, origins)
+    }
+
+    fun dismissStartMessage() {
+        startMessage = null
+    }
+
+    private fun start(parts: List<Part>, origins: Map<String, PartOrigin>) {
+        runId++
+        startOnNextOpen = false
+        // 前のゲームの送信は打ち切らない（サーバ側の保存と食い違わないように）。
+        // 結果は runId で照合するので、次のゲームの表示には混ざらない
+        uploading = false
+        result = null
+        settleTimer = 0.0
+        startMessage = null
+        world = newWorld()
+        pool = parts.distinctBy { it.id }
+        sessionOrigins = origins
+        placedSequence.clear()
+        placedCount = 0
+        changesLeft = CHANGES_PER_GAME
+        gameOver = false
+        height = 0f
+        fallenCount = 0
+        bonus = WeatherBonus.NONE
+        uploadMessage = null
+        shapes = world.renderShapes()
+        nextPart()
+    }
+
+    /**
+     * 次のパーツへ進む。パーツが落ちて終わっていれば、この瞬間の結果を固定して終わる。
+     * @param settled 直前のパーツのあと、塔全体が止まったのを確かめられたか（時間切れなら false）
+     */
+    private fun nextPart(settled: Boolean = true) {
+        ghostX = 0f
+        ghostAngleDeg = 0f
+        // 台の上に残っているパーツで数える（落ちたパーツは、落ちた時点で取り除いている）
+        bonus = WeatherBonus.of(world.placedGrips)
+        if (gameOver) {
+            current = null
+            val used = placedSequence.distinctBy { it.id }
+            result = StackResult(
+                tower = Tower(
+                    // 同じパーツは 1 つにまとめる（配置は置いた数だけ）。サーバは同じ id のパーツが 2 つあると断る
+                    parts = world.placedParts.distinctBy { it.id },
+                    placements = world.placements(),
+                    height = height,
+                    // みんなの絵と共有画像が、この台の幅で描く（決定 66）
+                    platformWidth = PLATFORM_WIDTH_M.toFloat(),
+                    createdAt = System.currentTimeMillis(),
+                ),
+                usedCount = placedCount,
+                fallenCount = fallenCount,
+                settled = settled,
+                walked = walkDistance(used, sessionOrigins),
+                bonus = bonus,
+                bonusMarks = world.placedMarks().filter { it.grip.bonusPercent > 0 }.sortedBy { it.topY },
+            )
+            phase = if (settled) Phase.Finished else Phase.Unresolved
+        } else {
+            current = pool.random(random)
+            phase = Phase.Placing
+        }
+        camera = computeCamera()
+    }
+
+    /**
+     * カメラの狙いを決める。パーツが止まったとき（と始めたとき）だけ計算し直す（[nextPart] から呼ぶ）。
+     *
+     * - 次のパーツを狙うとき：大きさは変えず、出てくる範囲のいちばん上（出てくる高さ＋どう回しても入る半径）が入るところまで
+     *   カメラを上げる。縮めると、同じ指の動きでパーツが大きく動き、細かく狙いたい高い塔ほど狙いにくくなるため（#70 のレビュー）
+     * - 置き切ったとき：台と、台の上に残っているパーツが全部入るように引く。全体が台の下面より下にあるパーツ
+     *   （落ちている途中のもの）は入れない（落ちていくパーツを入れようとして小さくなりすぎないように）。
+     *   天気のボーナスで模型を大きくするので（決定 68）、大きくしたあとの塔と台が入るように、範囲も同じ倍率で広げる
+     */
+    private fun computeCamera(): CameraTarget {
+        val part = current
+        if (phase == Phase.Placing && part != null) return CameraTarget.Follow(top = spawnY() + reachOf(part))
+        val halfWidth = (world.platformWidth / 2).toFloat()
+        val bottom = -world.platformThickness.toFloat()
+        var focus = WorldRect(-halfWidth, halfWidth, bottom, 0f)
+        world.renderShapes().filter { it.part != null }.groupBy { it.body }.values.forEach { shapesOfPart ->
+            val bounds = shapesOfPart.map { it.bounds() }.reduce(WorldRect::union)
+            if (bounds.maxY >= bottom) focus = focus.union(bounds)
+        }
+        val m = (result?.bonus?.multiplier ?: 1.0).toFloat()
+        return CameraTarget.Overview(WorldRect(focus.minX * m, focus.maxX * m, focus.minY * m, focus.maxY * m))
+    }
+
+    /**
+     * パーツの原点から、形のいちばん遠い点までの距離 [m]。どう回しても、この半径の円の中に収まる。
+     * 置くときと同じ大きさ（[PartSize]。長く歩いた道ほど大きい：#71）で測る
+     */
+    private fun reachOf(part: Part): Float {
+        var reach = 0.0
+        for (poly in PartGeometry.shapes(part, PartSize.of(part.distanceM))) {
+            for (v in poly.points) reach = max(reach, hypot(v.x, v.y))
+        }
+        return reach.toFloat()
+    }
+
+    /**
+     * チェンジ：狙っているパーツを、ほかのパーツ（いまと違うもの）にランダムに替える（決定 62）。都合の悪い形が出たときのため。
+     * 1 ゲームに [CHANGES_PER_GAME] 回まで（何度でも替えられると、合わない形を全部飛ばせて、積み方を考える楽しさが減るため）。
+     * 狙っている位置はそのまま、向きは 0° に戻す。出てくる高さは同じだが、大きさが違うので、カメラは新しいパーツが入る所まで上げ直す
+     */
+    fun change() {
+        val part = current ?: return
+        if (!canChange) return
+        current = pool.filter { it.id != part.id }.random(random)
+        changesLeft--
+        ghostAngleDeg = 0f
+        camera = computeCamera()
+    }
+
+    fun dragBy(dxMeters: Float) {
+        if (phase != Phase.Placing) return
+        ghostX = (ghostX + dxMeters).coerceIn(-dragLimit, dragLimit)
+    }
+
+    fun rotate(deltaDeg: Float) {
+        if (phase != Phase.Placing) return
+        ghostAngleDeg = (ghostAngleDeg + deltaDeg + 360f) % 360f
+    }
+
+    /**
+     * いまのパーツを置く。大きさは歩いた距離で決まる（[PartSize]。長く歩いた道ほど大きい）。
+     *
+     * @param grip いま置くパーツのすべりやすさ（歩いたときの天気。天気は画面がコレクションから引いて渡す）
+     */
+    fun place(grip: Grip = Grip.NORMAL) {
+        val part = current ?: return
+        if (phase != Phase.Placing) return
+        world.place(
+            part,
+            ghostX.toDouble(),
+            spawnY().toDouble(),
+            Math.toRadians(ghostAngleDeg.toDouble()),
+            scale = PartSize.of(part.distanceM),
+            grip = grip,
+        )
+        placedSequence += part
+        placedCount++
+        phase = Phase.Settling
+        settleTimer = 0.0
+    }
+
+    /**
+     * 毎フレーム呼ぶ。[dtSeconds] は前のフレームからの時間。
+     *
+     * - 1 回に進める時間は [MAX_FRAME_SECONDS] まで。アプリを裏から戻したときなどに長い dt が来ても、
+     *   物理がほとんど進まないまま待ち時間だけが進んで、判定が飛ぶことはない
+     * - 落ちたパーツは、落ちた時点で取り除いて数える（すでに置いたパーツが崩れて落ちた場合も）。
+     *   落ち続けるパーツは止まらないので、残しておくと塔全体が止まったことにならず、上限まで待つことになる
+     * - パーツが 1 つでも落ちたら終わり（[gameOver]）。狙っている間に塔が崩れて落ちたときも、狙っていたパーツは置かずに終わる。
+     *   どちらも、塔全体が止まるのを待ってから結果を固定する（止まらなければ時間切れで [Phase.Unresolved]）
+     * - 終わったあと（[Phase.Finished] / [Phase.Unresolved]）は物理を進めない。結果と画面の塔が変わらない
+     * - 狙っている間（[Phase.Placing]）も、塔が止まっていれば物理を進めず、図形（[shapes]）も作り直さない。
+     *   前は毎コマ作り直していたので、置いたままでも画面を 1 秒に約 60 回描き直していた（#4 の A のコメント）。
+     *   待ちの上限で次へ進んで塔がまだ動いているときは、今までどおり進める（崩れて落ちたら終わりにするため）
+     */
+    fun tick(dtSeconds: Double) {
+        if (phase == Phase.Idle || phase == Phase.Finished || phase == Phase.Unresolved) return
+        if (phase == Phase.Placing && world.isSettled()) return
+        val dt = dtSeconds.coerceIn(0.0, MAX_FRAME_SECONDS)
+        world.step(dt)
+        val fallen = world.removeFallen()
+        if (fallen.isNotEmpty()) {
+            fallenCount += fallen.size
+            if (!gameOver) {
+                gameOver = true
+                if (phase == Phase.Placing) {
+                    // 狙っている間に塔が崩れて落ちた：狙っていたパーツは置かず、塔が落ち着くのを待って終わる
+                    current = null
+                    phase = Phase.Settling
+                    settleTimer = 0.0
+                }
+            }
+        }
+
+        if (phase == Phase.Settling) {
+            settleTimer += dt
+            val settled = settleTimer >= settleTiming.minSeconds && world.isSettled()
+            if (settled || settleTimer >= settleTiming.maxSeconds) {
+                height = world.height().toFloat()
+                nextPart(settled)
+            }
+        }
+        shapes = world.renderShapes()
+        if (phase == Phase.Placing) height = world.height().toFloat()
+    }
+
+    fun upload() {
+        // 天気のボーナスで大きくしたあとの塔を送る（決定 68）
+        val tower = result?.uploadTower ?: return
+        if (!canUpload || uploading || uploaded) return
+        val uploadingRunId = runId
+        uploading = true
+        viewModelScope.launch {
+            try {
+                val response = postTower(tower)
+                if (runId == uploadingRunId) {
+                    uploadedRunId = uploadingRunId
+                    // 共有ページの URL は出さない（ほかの遊び方の「ランキングに出しました」とそろえる。決定 91）
+                    uploadMessage = "ランキングに出しました"
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // 前は接続先の URL と例外の文をそのまま出していた（決定 91）
+                if (runId == uploadingRunId) uploadMessage = "保存できませんでした。もう一度「保存」を押してください"
+            } finally {
+                if (runId == uploadingRunId) uploading = false
+            }
+        }
+    }
+
+    companion object {
+        /**
+         * 1 フレームで進める時間の上限 [s]。物理は 1/60 秒刻みで、1 回の呼び出しで 5 歩（約 0.083 秒）までしか進まない。
+         * 0.05 秒（3 歩ぶん）に抑えて、いつも全部進められるようにし、待ち時間と物理の進みがずれないようにする
+         */
+        const val MAX_FRAME_SECONDS = 0.05
+
+        /** 戻るときに、落ち着くのを待っている塔をその場で進める 1 回の時間 [s]（画面のコマと同じくらい） */
+        private const val SETTLE_NOW_STEP_SECONDS = 1.0 / 60
+
+        /** ゴーストを台の端からどこまで外へ動かせるか [m] */
+        const val DRAG_MARGIN_M = 0.8
+
+        const val MESSAGE_COLLECTION_EMPTY = "コレクションに道がありません。"
+
+        /** 1 ゲームでチェンジできる回数（[change]） */
+        const val CHANGES_PER_GAME = 3
+
+        /** 通常モードの台の幅 [m]。たくさん積めるように、1 本ずつ選んで積んでいたころ（1.4 m）の 2 倍（決定 62・#108）。画面に映る横 5 m に収まる */
+        const val PLATFORM_WIDTH_M = 2.8
+
+        private fun newWorld() = StackWorld(platformWidth = PLATFORM_WIDTH_M)
+    }
+}
+
+/** 描く図形 1 つを囲む長方形 [m]（ワールド座標） */
+private fun StackWorld.RenderShape.bounds(): WorldRect = when (this) {
+    is StackWorld.RenderShape.Poly -> WorldRect(xs.min().toFloat(), xs.max().toFloat(), ys.min().toFloat(), ys.max().toFloat())
+    is StackWorld.RenderShape.Disc -> WorldRect((cx - r).toFloat(), (cx + r).toFloat(), (cy - r).toFloat(), (cy + r).toFloat())
+}

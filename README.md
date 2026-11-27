@@ -56,7 +56,7 @@ DevFest GDGoC Japan Hackathon 2026 で、チーム Rein4ce（[@kkambayashi](http
 
 `local.properties` には SDK の場所（`sdk.dir`）も入っている。Android Studio で開けば作ってくれるが、`local.properties` の無い作業フォルダ（`git worktree`）をコマンドでビルドすると「SDK location not found」で止まることがある。そのときは、環境変数 `ANDROID_HOME` に SDK の場所を 1 回設定しておく（Windows は `%LOCALAPPDATA%\Android\Sdk`、Mac は `~/Library/Android/sdk`。Windows はシステムの環境変数、Mac は `~/.zshrc` などに書く）。
 
-- デバッグ署名は、パソコンごとの Android 標準のデバッグ鍵（`~/.android/debug.keystore`。Android Studio が作る）。Maps API キーの「Android アプリ」制限には、パッケージ名 `com.rein4ce.roadcollector` と、この鍵の SHA-1 を登録する（`keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android` で出る）
+- デバッグ署名は、パソコンごとの Android 標準のデバッグ鍵（`~/.android/debug.keystore`。Android Studio が作る）。Maps API キーの「Android アプリ」制限には、パッケージ名 `io.github.kkambayashi.michitsumi` と、この鍵の SHA-1 を登録する（`keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android` で出る）
 - キーは「API の制限」で Maps SDK for Android だけに絞る（リポジトリが公開で、配った APK からキーを取り出せるため。地図の表示は課金されない）
 - **2026-11-20 より前のビルド（ハッカソンのチーム共通の鍵で署名したもの）が入っている端末・エミュレータは、最初の 1 回だけアンインストールしてから入れる**（署名が変わるため）。アンインストールするとコレクション（集めたパーツ）も消える
 
@@ -105,7 +105,7 @@ main への push とプルリクエストのたびに、`core`・`server`・`app
 ## 構成と担当
 
 ```
-core/   com.rein4ce.roadcollector.core
+core/   io.github.kkambayashi.michitsumi.core
   model/     Part, Pt, Kind, TrackPoint, Tower, Placement  … チーム共通のデータ形式（変更時は全員に周知）
   geo/       TrackFilter, Projection, Simplify(RDP), TrackToPart, ConversionParams, TrackTime … B
   io/        TrackFileParser（GPX / JSON の軌跡ファイル読み込み）                         … A
@@ -114,7 +114,7 @@ core/   com.rein4ce.roadcollector.core
   weather/   Sky, WalkWeather, OpenMeteo（天気コードの読み替え・天気を聞く URL と返事の読み取り）         … B
   svg/       TowerSvg（共有ページ用の絵）
 
-app/    com.rein4ce.roadcollector
+app/    io.github.kkambayashi.michitsumi
   collect/       LocationRecordingService（フォアグラウンドサービス）, TrackRecorder, DemoWalkPlayer … A
   ui/collect/    記録画面（旧：採集。地図 or Canvas、デモ散歩、結果ダイアログ、題字 TitleBlocks、旗 StartGoalMarks、今いる場所の人と方位 HereMarker・HeadingBeam）          … A
   ui/inventory/  手持ち一覧・選択                                                           … B
@@ -126,7 +126,7 @@ app/    com.rein4ce.roadcollector
   ui/common/     PartDrawing（パーツの描画。PartGeometry の見た目の丸い形を使う。当たり判定は角ばった形）, FramedDialog（見出しの帯と「×」の付いた枠）, Notes（崩れない注記）, WalkNote（パーツの注記：足跡・長さ・日付・天気。コレクションのカードは天気を出さない）
   ui/settings/   設定（SettingsDialog）、ニックネーム、アプリについて                                  … B
 
-server/ com.rein4ce.roadcollector.server                                                  … C
+server/ io.github.kkambayashi.michitsumi.server                                                  … C
   Application.kt  Ktor 起動（PORT 環境変数）
   Routes.kt       GET /, /health, /towers, POST /towers, GET /towers/{id}, /towers/{id}/image.svg
   PartRoutes.kt   POST /parts/name（パーツの命名）・POST /nickname（ニックネームの案）。失敗は 503

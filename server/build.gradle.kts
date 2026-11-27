@@ -18,7 +18,7 @@ kotlin {
 }
 
 application {
-    mainClass.set("com.rein4ce.roadcollector.server.ApplicationKt")
+    mainClass.set("io.github.kkambayashi.michitsumi.server.ApplicationKt")
 }
 
 dependencies {
@@ -51,7 +51,7 @@ jib {
     }
     container {
         ports = listOf("8080")
-        mainClass = "com.rein4ce.roadcollector.server.ApplicationKt"
+        mainClass = "io.github.kkambayashi.michitsumi.server.ApplicationKt"
         jvmFlags = listOf("-Xmx256m")
     }
 }
