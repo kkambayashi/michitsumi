@@ -20,7 +20,7 @@ import io.github.kkambayashi.michitsumi.ui.inventory.Fieldbook
 
 /**
  * アプリについて（設定の枠の中で切り替えて出す）。バージョン（ver 0.1.0 の形）、外に送るもの（プライバシー）、使っている素材とライセンス。
- * 素材の出どころは app/fonts/README.md と README の「天気データ」も参照
+ * 素材の出どころは app/fonts/README.md と docs/features.md の「天気の取り方」も参照
  */
 @Composable
 internal fun ColumnScope.AboutContent() {
