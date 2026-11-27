@@ -2,6 +2,7 @@ package com.rein4ce.roadcollector.ui.inventory
 
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import com.google.android.gms.maps.model.CameraPosition
@@ -33,11 +34,14 @@ import kotlin.math.log2
 fun PlaceMap(place: PartPlace, belowDp: Float, modifier: Modifier = Modifier) {
     BoxWithConstraints(modifier) {
         val figureDp = maxWidth.value
-        val camera = rememberCameraPositionState(key = "${place.lat},${place.lng},${place.sizeM},$figureDp,$belowDp") {
-            position = CameraPosition.fromLatLngZoom(
-                cameraTarget(place, figureDp, belowDp),
-                zoomFor(place, figureDp).coerceIn(MIN_MAP_ZOOM, MAX_MAP_ZOOM),
-            )
+        // 場所や図の大きさが変わったら、カメラを置き直す
+        val camera = key(place.lat, place.lng, place.sizeM, figureDp, belowDp) {
+            rememberCameraPositionState {
+                position = CameraPosition.fromLatLngZoom(
+                    cameraTarget(place, figureDp, belowDp),
+                    zoomFor(place, figureDp).coerceIn(MIN_MAP_ZOOM, MAX_MAP_ZOOM),
+                )
+            }
         }
         GoogleMap(
             cameraPositionState = camera,

@@ -85,7 +85,7 @@ import com.google.maps.android.compose.CameraPositionState
 import com.google.maps.android.compose.Marker
 import com.google.maps.android.compose.MarkerComposable
 import com.google.maps.android.compose.Polyline
-import com.google.maps.android.compose.rememberMarkerState
+import com.google.maps.android.compose.rememberUpdatedMarkerState
 import com.google.maps.android.compose.rememberCameraPositionState
 import com.rein4ce.roadcollector.BuildConfig
 import com.rein4ce.roadcollector.RoadCollectorApp
@@ -615,8 +615,7 @@ private fun TrackMap(points: List<TrackPoint>, recording: Boolean, playingDemo: 
                 }
             }
             if (firstPt != null) {
-                val startState = rememberMarkerState()
-                startState.position = LatLng(firstPt.lat, firstPt.lng)
+                val startState = rememberUpdatedMarkerState(LatLng(firstPt.lat, firstPt.lng))
                 val tilt = if (spread) FLAG_SPREAD_DEGREES else 0f
                 MarkerComposable(Fieldbook.dark, tilt, state = startState, anchor = FlagAnchor, zIndex = 4f, title = "スタート") {
                     FlagMarker(StartFlagColor, tilt = tilt)
@@ -654,8 +653,7 @@ private fun TrackMap(points: List<TrackPoint>, recording: Boolean, playingDemo: 
                 } else if (points.size >= 2) {
                     // 止めたあと：最後の点に青い旗（ゴール）
                     // （歩き始めの近くなら、左右を反転して左へ傾ける）
-                    val goalState = rememberMarkerState()
-                    goalState.position = LatLng(last.lat, last.lng)
+                    val goalState = rememberUpdatedMarkerState(LatLng(last.lat, last.lng))
                     MarkerComposable(Fieldbook.dark, spread, state = goalState, anchor = FlagAnchor, zIndex = 5f, title = "ゴール") {
                         FlagMarker(GoalFlagColor, mirrored = spread, tilt = if (spread) -FLAG_SPREAD_DEGREES else 0f)
                     }
@@ -757,8 +755,7 @@ private fun HereMarker(
     }
     val pose = if (step % 2 == 0) WalkerPose.STEP_A else WalkerPose.STEP_B
     if (deg != null) {
-        val pointerState = rememberMarkerState()
-        pointerState.position = at
+        val pointerState = rememberUpdatedMarkerState(at)
         MarkerComposable(
             Fieldbook.dark,
             state = pointerState,
@@ -772,8 +769,7 @@ private fun HereMarker(
         }
     }
     // 人の印（絵は向きと姿ごとに 1 回だけ描いて使い回す。rememberWalkerIcon）
-    val figureState = rememberMarkerState()
-    figureState.position = at
+    val figureState = rememberUpdatedMarkerState(at)
     Marker(
         state = figureState,
         icon = rememberWalkerIcon(facingRight = right, pose = pose),
