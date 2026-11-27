@@ -175,6 +175,7 @@ class ChallengeViewModel(
         if (!canStart) return
         run?.pause()
         run?.close() // 前の回は、もう使わない
+        run = null // 新しい回を作るのに失敗しても、閉じた回を指したままにしない
         run = newRun(style)
         generation++
         publishFrame()
@@ -349,7 +350,7 @@ class ChallengeViewModel(
     }
 
     /** 画面が片付けられるとき：今の回の物理ワールドを閉じる（[ChallengeRun.close]） */
-    @VisibleForTesting
+    @VisibleForTesting(otherwise = VisibleForTesting.PROTECTED)
     public override fun onCleared() {
         run?.close()
         super.onCleared()

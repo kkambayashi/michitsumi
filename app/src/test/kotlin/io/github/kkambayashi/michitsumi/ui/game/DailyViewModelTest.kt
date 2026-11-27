@@ -45,6 +45,7 @@ class DailyViewModelTest {
     fun `塔を組み直しても物理ワールドは増えず、画面を片付けると閉じる`() {
         val before = StackWorld.openCount
         val vm = newVm(DailyTower()) // 読み込んだら組み直す（はじめのワールドは閉じる）
+        assertEquals("読み込んで組み直しが済んだ", DailyViewModel.Phase.Viewing, vm.phase)
         assertEquals(before + 1, StackWorld.openCount)
         vm.onCleared()
         assertEquals(before, StackWorld.openCount)

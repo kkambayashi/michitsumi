@@ -14,6 +14,8 @@ import org.dyn4j.world.ContactCollisionData
 import org.dyn4j.world.ValueMixer
 import org.dyn4j.world.World
 import org.dyn4j.world.listener.ContactListenerAdapter
+import java.util.WeakHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.min
 import kotlin.math.sqrt
 
@@ -110,7 +112,6 @@ class StackWorld(
             userData = PLATFORM_TAG
         }
         world.addBody(platform)
-        synchronized(open) { open += this }
     }
 
     /** 閉じたか（[close]） */
@@ -127,10 +128,15 @@ class StackWorld(
      */
     override fun close() {
         if (isClosed) return
-        clear()
-        world.removeAllBodies()
-        isClosed = true
-        synchronized(open) { open -= this }
+        try {
+            clear()
+            world.removeAllBodies()
+        } finally {
+            // 片付けの途中で例外が出ても、閉じたことにする（数え直しや、閉じたあとの使用の検出がずれないように）
+            isClosed = true
+            openNow.decrementAndGet()
+            synchronized(live) { live.remove(this) }
+        }
     }
 
     /** 閉じたワールドを使おうとしたら止める（エンジンを替えたあとは、閉じたワールドに触ると落ちるので、今のうちに見つける） */
@@ -433,19 +439,28 @@ class StackWorld(
         }
     }
 
+    // 数えるのは、作り終わった最後（途中で例外が出たら、作れていないので数えない。プロパティの初期化はこの上で済んでいる）
+    init {
+        openNow.incrementAndGet()
+        synchronized(live) { live[this] = Unit }
+    }
+
     companion object {
-        /**
-         * まだ閉じていないワールド。閉じ忘れを見つけるため（閉じれば外れる）。
-         * 閉じ忘れたワールドはここに残り続けるので、今のエンジンでも「漏れ」として [openCount] に出る（替えたあとのエンジンと同じ）
-         */
-        private val open = LinkedHashSet<StackWorld>()
+        /** 作った数 − 閉じた数。ガベージコレクタに片付けられても減らないので、閉じ忘れはそのまま数に残る */
+        private val openNow = AtomicInteger()
 
         /** まだ閉じていないワールドの数。閉じ忘れを見つけるのに使う（テストで、作り直しても増えないことを確かめる） */
-        val openCount: Int get() = synchronized(open) { open.size }
+        val openCount: Int get() = openNow.get()
+
+        /**
+         * まだ閉じていないワールド（テストの後始末 [closeAllForTest] 用）。弱い参照で持つので、閉じ忘れたワールドも
+         * ガベージコレクタは片付けられる（アプリでメモリを漏らさない。今の dyn4j では、閉じなくても前と同じ動き）
+         */
+        private val live = WeakHashMap<StackWorld, Unit>()
 
         /** まだ閉じていないワールドを、全部閉じる。テストの後始末用（アプリでは、作った側が閉じる） */
         fun closeAllForTest() {
-            synchronized(open) { open.toList() }.forEach { it.close() }
+            synchronized(live) { live.keys.toList() }.forEach { it.close() }
         }
 
         const val PLATFORM_TAG = "platform"

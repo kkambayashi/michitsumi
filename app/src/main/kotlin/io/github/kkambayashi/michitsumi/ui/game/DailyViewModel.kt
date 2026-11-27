@@ -363,7 +363,7 @@ class DailyViewModel(
     }
 
     /** 画面が片付けられるとき：物理ワールドを閉じる（[StackWorld.close]） */
-    @VisibleForTesting
+    @VisibleForTesting(otherwise = VisibleForTesting.PROTECTED)
     public override fun onCleared() {
         world.close()
         super.onCleared()

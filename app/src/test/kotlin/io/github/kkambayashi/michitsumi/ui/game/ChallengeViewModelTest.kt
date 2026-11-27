@@ -44,6 +44,7 @@ class ChallengeViewModelTest {
         vm.leave()
         assertEquals(before, StackWorld.openCount)
         vm.start()
+        assertEquals("離れたあと、新しい回を作った", before + 1, StackWorld.openCount)
         vm.onCleared()
         assertEquals(before, StackWorld.openCount)
     }
