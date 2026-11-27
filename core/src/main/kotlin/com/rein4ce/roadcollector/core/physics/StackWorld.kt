@@ -322,6 +322,9 @@ class StackWorld(
         override fun collision(collision: ContactCollisionData<Body>) {
             val contact = collision.contactConstraint
             if (contact.body1.userData == PLATFORM_TAG || contact.body2.userData == PLATFORM_TAG) {
+                // dyn4j は、接触ごとに摩擦を変える方法を非推奨にしたが、代わりが無い（摩擦を混ぜる ValueMixer には
+                // 摩擦の値しか渡らず、台かどうかを見分けられない）。dyn4j 6.0.0 でもこのまま効くので、警告だけ抑える
+                @Suppress("DEPRECATION")
                 contact.friction = PLATFORM_CONTACT_FRICTION
             }
         }
