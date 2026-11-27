@@ -22,6 +22,7 @@ mapsCompose = "9.0.1"
 coroutines = "1.11.0"
 serializationJson = "1.13.0"
 dyn4j = "6.0.0"
+boks2d = "0.1.1"
 ktor = "3.6.1"
 logback = "1.6.8"
 genai = "2.6.0"
@@ -58,6 +59,8 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 reorderable = { group = "sh.calvin.reorderable", name = "reorderable", version.ref = "reorderable" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serializationJson" }
 dyn4j = { group = "org.dyn4j", name = "dyn4j", version.ref = "dyn4j" }
+# Box2D v3 を Kotlin から呼ぶ（iOS 版でも同じ物理にするため）
+boks2d = { group = "io.github.joaomcl", name = "boks2d", version.ref = "boks2d" }
 
 # Ktor client（アプリ側）
 ktor-client-core = { group = "io.ktor", name = "ktor-client-core", version.ref = "ktor" }

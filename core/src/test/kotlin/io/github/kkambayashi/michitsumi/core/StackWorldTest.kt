@@ -54,15 +54,16 @@ class StackWorldTest {
 
     @Test
     fun `part body has one fixture per segment plus one per corner`() {
+        val world = StackWorld()
         val bar = SampleParts.byId("sample-bar")!!
-        val body = PartBodyFactory.create(bar)
+        val piece = world.place(bar, x = 0.0, y = 2.0, angle = 0.0)
         // 棒：線分 1 本だけ（両端は四角く切った長方形。継ぎ目は無い）
-        assertEquals(bar.points.size - 1, body.fixtureCount)
-        assertTrue(body.mass.mass > 0)
+        assertEquals(bar.points.size - 1, piece.shapeCount)
+        assertTrue(world.massForTest(piece) > 0)
         // L 字：線分 2 本＋曲がり角の継ぎ目 1 つ
         val l = SampleParts.byId("sample-l")!!
         assertEquals(3, l.points.size)
-        assertEquals(3, PartBodyFactory.create(l).fixtureCount)
+        assertEquals(3, world.place(l, x = 0.0, y = 4.0, angle = 0.0).shapeCount)
     }
 
     @Test
@@ -153,7 +154,8 @@ class StackWorldTest {
                 settle(world)
             }
             val piece = world.place(bar, x = -0.2, y = world.height() + 0.3, angle = Math.PI / 2, grip = grip)
-            assertTrue(piece.frictions.all { it == grip.friction })
+            // Box2D は摩擦を Float で持つので、Double の値とは 1e-6 の違いまで同じとみなす
+            assertTrue(piece.frictions.all { kotlin.math.abs(it - grip.friction) < 1e-6 })
             settle(world)
             val start = piece.centerX
             piece.push(1.5, 0.0) // 止まったパーツも起こして押す

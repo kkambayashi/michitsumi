@@ -138,6 +138,9 @@ dependencies {
     implementation(libs.ktor.client.content.negotiation)
     implementation(libs.ktor.serialization.kotlinx.json)
 
+    // テストは Android ではなくパソコンの JVM で動くので、物理エンジンのネイティブ（Mac・Linux 用）を足す。
+    // アプリには Android 用の版（.so）が入る
+    testRuntimeOnly("io.github.joaomcl:boks2d-jvm:${libs.versions.boks2d.get()}")
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
 }

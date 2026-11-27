@@ -20,7 +20,7 @@ kotlin {
 dependencies {
     api(libs.kotlinx.serialization.json)
     // 物理エンジンは :core の中だけで使う（型は StackWorld の外に出さない。iOS 版でエンジンを替えるため）
-    implementation(libs.dyn4j)
+    implementation(libs.boks2d)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlin.test)

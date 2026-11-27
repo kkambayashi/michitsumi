@@ -1,21 +1,21 @@
 package io.github.kkambayashi.michitsumi.core.physics
 
+import io.github.joaomcl.boks2d.collision.Distance
+import io.github.joaomcl.boks2d.collision.DistanceInput
+import io.github.joaomcl.boks2d.core.Body
+import io.github.joaomcl.boks2d.core.BodyDef
+import io.github.joaomcl.boks2d.core.BodyType
+import io.github.joaomcl.boks2d.core.World
+import io.github.joaomcl.boks2d.core.WorldDef
+import io.github.joaomcl.boks2d.math.Transform
+import io.github.joaomcl.boks2d.math.Vec2
+import io.github.joaomcl.boks2d.shapes.Polygon
+import io.github.joaomcl.boks2d.shapes.ShapeDef
 import io.github.kkambayashi.michitsumi.core.model.Part
 import io.github.kkambayashi.michitsumi.core.model.Placement
-import org.dyn4j.collision.narrowphase.Gjk
-import org.dyn4j.dynamics.Body
-import org.dyn4j.geometry.Circle
-import org.dyn4j.geometry.Geometry
-import org.dyn4j.geometry.MassType
-import org.dyn4j.geometry.Polygon
-import org.dyn4j.geometry.Transform
-import org.dyn4j.geometry.Vector2
-import org.dyn4j.world.ContactCollisionData
-import org.dyn4j.world.ValueMixer
-import org.dyn4j.world.World
-import org.dyn4j.world.listener.ContactListenerAdapter
 import java.util.WeakHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.sqrt
 
@@ -33,8 +33,8 @@ import kotlin.math.sqrt
  *   w.isSettled() が true になったら w.height()
  *   使い終わったら w.close()（作った側が必ず閉じる。[close]）
  *
- * 物理エンジン（dyn4j）の型は、このクラスの外に出さない。置いたパーツは [Piece] で受け渡す
- * （iOS 版で物理エンジンを替えても、画面・チャレンジ・テストを直さずに済むように）
+ * 物理エンジン（Box2D v3。Boks2d から呼ぶ）の型は、このクラスの外に出さない。置いたパーツは [Piece] で受け渡す
+ * （iOS 版でも同じエンジンを使い、画面・チャレンジ・テストを直さずに済むように）
  */
 class StackWorld(
     val platformWidth: Double = PLATFORM_WIDTH,
@@ -42,14 +42,14 @@ class StackWorld(
     /** これより下に落ちたパーツは「落下」扱い */
     val fallThresholdY: Double = -1.5,
 ) : AutoCloseable {
-    /** 物理エンジン（dyn4j）のワールド。外からは触らせない（[Piece] とテスト用の関数を通す） */
-    private val world: World<Body> = World()
+    /** 物理エンジン（Box2D）のワールド。外からは触らせない（[Piece] とテスト用の関数を通す）。C のメモリなので [close] で消す */
+    private val world: World = World(WorldDef(gravity = Vec2(0f, GRAVITY)))
 
     private val platform: Body
     private val placed = LinkedHashMap<Body, Part>()
 
     /**
-     * 置いたパーツの見た目の形（丸い。パーツのローカル座標）。当たり判定（角ばった fixture）とは別に、置いたときに一度だけ作る。
+     * 置いたパーツの見た目の形（丸い。パーツのローカル座標）。当たり判定（角ばった形）とは別に、置いたときに一度だけ作る。
      * 描くときは、これをボディの位置・向きに動かすだけにする（毎フレーム作り直さない）
      */
     private val visuals = HashMap<Body, List<PartGeometry.Polygon>>()
@@ -70,6 +70,16 @@ class StackWorld(
     /** 固めたパーツ（[freeze]）。動かないので、止まったか（[isSettled]）は見ない */
     private val frozen = HashSet<Body>()
 
+    /**
+     * 置いたパーツごとの、ゆっくり（[AT_REST_LINEAR_VELOCITY]・[AT_REST_ANGULAR_VELOCITY] 以下）になってからの時間 [s]。
+     * [AT_REST_TIME] 以上なら止まったとみなす（[isSettled]）。Box2D の眠り（触れ合うものをまとめて、0.5 秒で眠らせる）とは別に、
+     * 前のエンジン（dyn4j）と同じ決まりで数える（止まるまで待つ時間が、エンジンで変わらないように）
+     */
+    private val restTimes = HashMap<Body, Double>()
+
+    /** まだ進めていない時間 [s]（[step] は 1/60 秒ずつ進め、余りは次に持ち越す） */
+    private var pendingTime = 0.0
+
     /** 置かれているパーツ（落下で消えたものは含まない） */
     val placedParts: List<Part> get() = placed.values.toList()
 
@@ -86,32 +96,22 @@ class StackWorld(
     fun placedMarks(): List<PlacedMark> {
         checkOpen()
         return placed.keys.map { body ->
-            val box = body.createAABB()
-            PlacedMark(grips[body] ?: Grip.NORMAL, (box.minX + box.maxX) / 2, box.maxY)
+            val box = boundsOf(body)
+            PlacedMark(grips[body] ?: Grip.NORMAL, (box.minX + box.maxX) / 2.0, box.maxY)
         }
     }
 
     init {
-        val s = world.settings
-        s.stepFrequency = 1.0 / 60.0
-        s.isAtRestDetectionEnabled = true
-        s.maximumAtRestLinearVelocity = 0.05
-        s.maximumAtRestAngularVelocity = 0.1
-        s.minimumAtRestTime = 0.8
-        world.setGravity(0.0, -9.8)
-        world.valueMixer = GripMixer
-        world.addContactListener(PlatformGrip)
+        // 摩擦の混ぜ方（パーツどうしと、台との間。[mixFriction]）
+        world.setFrictionCallback(::mixFrictionCallback)
 
-        platform = Body().apply {
-            val rect = Geometry.createRectangle(platformWidth, platformThickness)
-            rect.translate(0.0, -platformThickness / 2.0)
-            val f = addFixture(rect)
-            f.friction = PLATFORM_FRICTION
-            f.restitution = 0.0
-            setMass(MassType.INFINITE)
-            userData = PLATFORM_TAG
-        }
-        world.addBody(platform)
+        platform = world.createBody(BodyDef(type = BodyType.Static, position = Vec2(0f, (-platformThickness / 2.0).toFloat())))
+        val shape = platform.createPolygonShape(
+            ShapeDef(friction = PLATFORM_FRICTION.toFloat(), restitution = 0f),
+            Polygon.makeBox((platformWidth / 2.0).toFloat(), (platformThickness / 2.0).toFloat()),
+        )
+        // 台の印。摩擦の混ぜ方で、台との接触を見分ける（摩擦の値では見分けない。[mixFriction]）
+        shape.material = PLATFORM_MATERIAL
     }
 
     /** 閉じたか（[close]） */
@@ -121,25 +121,24 @@ class StackWorld(
     /**
      * 使い終わったワールドを閉じる。閉じたあとは使えない（使うと IllegalStateException）。2 回目からは何もしない。
      *
-     * 今の物理エンジン（dyn4j）は Java で書かれていて、使わなくなればガベージコレクタが片付けるので、閉じなくても漏れない。
-     * ただ、iOS 版のために考えている Box2D（Boks2d）は C のメモリを使うので、閉じないと漏れる。同時に作れるワールドも
-     * 128 個までで、作る・消すはスレッドに対して安全でない（ガベージコレクタに任せて別のスレッドで消すことはできない）。
-     * エンジンを替えても使う側を直さずに済むよう、今のうちから、作った側が使い終わった時点で閉じる
+     * Box2D は C で書かれていて、ワールドは C のメモリにある。ガベージコレクタは片付けないので、閉じて消す。
+     * 同時に作れるワールドは 128 個までで、作る・消すはスレッドに対して安全でない（ガベージコレクタに任せて
+     * 別のスレッドで消すことはできない）ので、作った側が使い終わった時点で閉じる
      */
     override fun close() {
         if (isClosed) return
         try {
             clear()
-            world.removeAllBodies()
         } finally {
             // 片付けの途中で例外が出ても、閉じたことにする（数え直しや、閉じたあとの使用の検出がずれないように）
             isClosed = true
+            world.destroy()
             openNow.decrementAndGet()
             synchronized(live) { live.remove(this) }
         }
     }
 
-    /** 閉じたワールドを使おうとしたら止める（エンジンを替えたあとは、閉じたワールドに触ると落ちるので、今のうちに見つける） */
+    /** 閉じたワールドを使おうとしたら止める（閉じたワールドの C のメモリに触ると、アプリが落ちるので） */
     private fun checkOpen() = check(!isClosed) { "閉じた StackWorld は使えない" }
 
     /**
@@ -151,20 +150,21 @@ class StackWorld(
      */
     fun place(part: Part, x: Double, y: Double, angle: Double, scale: Double = 1.0, grip: Grip = Grip.NORMAL): Piece {
         checkOpen()
-        val body = PartBodyFactory.create(part, scale, PartBodyFactory.DEFAULT_MATERIAL.copy(friction = grip.friction))
-        body.rotate(angle)
-        body.translate(x, y)
-        world.addBody(body)
+        val body = PartBodyFactory.create(
+            world, part, x, y, angle, scale,
+            PartBodyFactory.DEFAULT_MATERIAL.copy(friction = grip.friction),
+        )
         placed[body] = part
         visuals[body] = PartGeometry.shapes(part, scale)
         bodyIds[body] = nextBodyId++
         scales[body] = scale
         grips[body] = grip
+        restTimes[body] = 0.0
         return Piece(body, this)
     }
 
     /**
-     * 置いたパーツ（[place] が返したもの）を、その場で固める。重さを無限にして、台と同じく、ぶつかっても動かず落ちもしない。
+     * 置いたパーツ（[place] が返したもの）を、その場で固める。動かない物体（台と同じ）にして、ぶつかっても動かず落ちもしない。
      * 毎日 1 つずつ積むで、昨日までの塔を固めるのに使う（決定 70。今日のパーツが当たっても崩れないように）。
      * 固めたパーツも、塔の高さ・保存する配置・描く形には入る
      */
@@ -172,10 +172,7 @@ class StackWorld(
         checkOpen()
         val body = piece.body
         require(body in placed) { "置いたパーツだけ固められる" }
-        body.setMass(MassType.INFINITE)
-        body.linearVelocity.zero()
-        body.angularVelocity = 0.0
-        body.setAtRest(true)
+        body.type = BodyType.Static
         frozen += body
     }
 
@@ -187,40 +184,67 @@ class StackWorld(
      */
     fun overlaps(part: Part, x: Double, y: Double, angle: Double, scale: Double = 1.0): Boolean {
         checkOpen()
-        val transform = Transform().apply {
-            rotate(angle)
-            translate(x, y)
-        }
-        val shapes = PartGeometry.collisionShapes(part, scale).map { poly ->
-            Geometry.createPolygon(*poly.points.map { Vector2(it.x, it.y) }.toTypedArray())
+        val c = kotlin.math.cos(angle)
+        val s = kotlin.math.sin(angle)
+        val candidates = PartGeometry.collisionShapes(part, scale).map { poly ->
+            Distance.makeProxy(
+                poly.points.map { Vec2((c * it.x - s * it.y + x).toFloat(), (s * it.x + c * it.y + y).toFloat()) },
+                0f,
+            )
         }
         for (body in listOf(platform) + placed.keys) {
-            for (fixture in body.fixtures) {
-                for (shape in shapes) if (gjk.detect(shape, transform, fixture.shape, body.transform)) return true
+            val t = body.transform
+            for (shape in body.getShapes()) {
+                val existing = Distance.makeProxy(shape.getPolygon().vertices.map { t.transformPoint(it) }, 0f)
+                for (candidate in candidates) {
+                    val d = Distance.shapeDistance(DistanceInput(candidate, existing, useRadii = false))
+                    if (d.distance <= 0f) return true
+                }
             }
         }
         return false
     }
 
-    private val gjk = Gjk()
-
-    /** 経過時間ぶん進める。内部は固定ステップ（1/60 s）。 */
+    /**
+     * 経過時間ぶん進める。内部は固定ステップ（1/60 s）。1 回に進めるのは [MAX_STEPS] ステップまでで、
+     * 余った時間は次に持ち越す（前のエンジン dyn4j の `update(経過時間, 5)` と同じ決まり）
+     */
     fun step(elapsedSeconds: Double) {
         checkOpen()
         // 一度に進めすぎない（アプリ復帰時など）
-        world.update(elapsedSeconds.coerceIn(0.0, 0.1), 5)
+        pendingTime += elapsedSeconds.coerceIn(0.0, 0.1)
+        var steps = 0
+        while (pendingTime >= STEP_SECONDS && steps < MAX_STEPS) {
+            world.step(STEP_SECONDS.toFloat(), SUB_STEPS)
+            pendingTime -= STEP_SECONDS
+            updateRestTimes()
+            steps++
+        }
     }
+
+    /** 置いたパーツごとに、ゆっくりになってからの時間を数える（[restTimes]） */
+    private fun updateRestTimes() {
+        for (body in placed.keys) {
+            if (body in frozen) continue
+            val v = body.linearVelocity
+            val moving = v.x * v.x + v.y * v.y > AT_REST_LINEAR_VELOCITY * AT_REST_LINEAR_VELOCITY ||
+                abs(body.angularVelocity) > AT_REST_ANGULAR_VELOCITY
+            restTimes[body] = if (moving) 0.0 else (restTimes[body] ?: 0.0) + STEP_SECONDS
+        }
+    }
+
+    private fun isAtRest(body: Body): Boolean = (restTimes[body] ?: 0.0) >= AT_REST_TIME
 
     /** 全パーツが静止しているか（固めたパーツ（[freeze]）は動かないので見ない）。 */
     fun isSettled(): Boolean {
         checkOpen()
-        return placed.keys.all { it in frozen || it.isAtRest }
+        return placed.keys.all { it in frozen || isAtRest(it) }
     }
 
     /** まだ動いているパーツの数（固めたパーツは数えない）。 */
     fun movingCount(): Int {
         checkOpen()
-        return placed.keys.count { it !in frozen && !it.isAtRest }
+        return placed.keys.count { it !in frozen && !isAtRest(it) }
     }
 
     /** 台から落ちたパーツをワールドから外して返す。 */
@@ -229,14 +253,20 @@ class StackWorld(
         val fallen = placed.keys.filter { it.worldCenter.y < fallThresholdY }
         val parts = fallen.map { placed.remove(it)!! }
         fallen.forEach {
-            visuals.remove(it)
-            bodyIds.remove(it)
-            scales.remove(it)
-            grips.remove(it)
-            frozen.remove(it)
+            forget(it)
+            world.destroyBody(it)
         }
-        fallen.forEach { world.removeBody(it) }
         return parts
+    }
+
+    /** 外したボディの覚え書きを消す */
+    private fun forget(body: Body) {
+        visuals.remove(body)
+        bodyIds.remove(body)
+        scales.remove(body)
+        grips.remove(body)
+        frozen.remove(body)
+        restTimes.remove(body)
     }
 
     /** 台の上面から、残っているパーツの最高点までの高さ [m]。 */
@@ -244,22 +274,44 @@ class StackWorld(
         checkOpen()
         var maxY = 0.0
         for (b in placed.keys) {
-            val aabb = b.createAABB()
-            if (aabb.maxY > maxY) maxY = aabb.maxY
+            val top = boundsOf(b).maxY
+            if (top > maxY) maxY = top
         }
         return maxY
+    }
+
+    private class Bounds(val minX: Double, val maxX: Double, val maxY: Double)
+
+    /**
+     * ボディの当たり判定の形を囲む長方形（形の頂点から求める）。
+     * Box2D がボディに持っている長方形（aabb）は、先読みの接触のために 0.02 m 広げてあるので、高さには使わない
+     */
+    private fun boundsOf(body: Body): Bounds {
+        val t = body.transform
+        var minX = Double.MAX_VALUE
+        var maxX = -Double.MAX_VALUE
+        var maxY = -Double.MAX_VALUE
+        for (shape in body.getShapes()) {
+            for (v in shape.getPolygon().vertices) {
+                val w = t.transformPoint(v)
+                minX = minOf(minX, w.x.toDouble())
+                maxX = maxOf(maxX, w.x.toDouble())
+                maxY = maxOf(maxY, w.y.toDouble())
+            }
+        }
+        return Bounds(minX, maxX, maxY)
     }
 
     /** 保存用の最終配置。 */
     fun placements(): List<Placement> {
         checkOpen()
         return placed.map { (b, p) ->
-            val t = b.transform
+            val position = b.position
             Placement(
                 partId = p.id,
-                x = t.translationX.toFloat(),
-                y = t.translationY.toFloat(),
-                angleRad = t.rotationAngle.toFloat(),
+                x = position.x,
+                y = position.y,
+                angleRad = b.angle,
                 scale = (scales[b] ?: 1.0).toFloat(),
             )
         }
@@ -267,13 +319,14 @@ class StackWorld(
 
     fun clear() {
         checkOpen()
-        placed.keys.forEach { world.removeBody(it) }
+        placed.keys.forEach { world.destroyBody(it) }
         placed.clear()
         visuals.clear()
         bodyIds.clear()
         scales.clear()
         grips.clear()
         frozen.clear()
+        restTimes.clear()
     }
 
     /**
@@ -282,51 +335,66 @@ class StackWorld(
      */
     class Piece internal constructor(internal val body: Body, private val owner: StackWorld) {
         /** 重心の位置 [m] */
-        val centerX: Double get() { owner.checkOpen(); return body.worldCenter.x }
-        val centerY: Double get() { owner.checkOpen(); return body.worldCenter.y }
+        val centerX: Double get() { owner.checkOpen(); return body.worldCenter.x.toDouble() }
+        val centerY: Double get() { owner.checkOpen(); return body.worldCenter.y.toDouble() }
 
         /** 速さ [m/s] */
-        val velocityX: Double get() { owner.checkOpen(); return body.linearVelocity.x }
-        val velocityY: Double get() { owner.checkOpen(); return body.linearVelocity.y }
+        val velocityX: Double get() { owner.checkOpen(); return body.linearVelocity.x.toDouble() }
+        val velocityY: Double get() { owner.checkOpen(); return body.linearVelocity.y.toDouble() }
 
         /** 当たり判定の形（角ばった多角形）の数 */
-        val shapeCount: Int get() { owner.checkOpen(); return body.fixtureCount }
+        val shapeCount: Int get() { owner.checkOpen(); return body.shapeCount }
 
         /** 当たり判定の形ごとの、面の摩擦 */
-        val frictions: List<Double> get() { owner.checkOpen(); return body.fixtures.map { it.friction } }
+        val frictions: List<Double> get() { owner.checkOpen(); return body.getShapes().map { it.friction.toDouble() } }
 
         /** この速さ [m/s] で動かす。止まっていたパーツも起こして動かす */
         fun push(vx: Double, vy: Double) {
             owner.checkOpen()
-            body.setAtRest(false)
-            body.setLinearVelocity(vx, vy)
+            body.isAwake = true
+            body.linearVelocity = Vec2(vx.toFloat(), vy.toFloat())
         }
     }
 
     // ---- テスト用（物理エンジンの型を出さずに、テストから中を動かす。internal なので :core の外からは使えない） ----
 
+    /** 置いたパーツの重さ [kg]（形と密度から決まる） */
+    internal fun massForTest(piece: Piece): Double = piece.body.mass.toDouble()
+
     /** 重さの向きと大きさ [m/s²] を変える（0 にすると、置いた形が浮いたままになる） */
     internal fun setGravityForTest(x: Double, y: Double) {
-        world.setGravity(x, y)
+        world.gravity = Vec2(x.toFloat(), y.toFloat())
     }
 
     /** 最後に置いたパーツを、減衰なしで回し続ける（いつまでも止まらない塔を作る） */
     internal fun spinLastForTest(angularVelocity: Double) {
         val body = placed.keys.last()
-        body.angularDamping = 0.0
-        body.angularVelocity = angularVelocity
+        body.angularDamping = 0f
+        body.isAwake = true
+        body.angularVelocity = angularVelocity.toFloat()
     }
 
     /** 最後に置いたパーツを、その場から動かす（塔が崩れた様子を作る） */
     internal fun moveLastForTest(dx: Double, dy: Double) {
-        placed.keys.last().translate(dx, dy)
+        val body = placed.keys.last()
+        val t = body.transform
+        body.transform = Transform(Vec2(t.position.x + dx.toFloat(), t.position.y + dy.toFloat()), t.rotation)
     }
 
-    /** パーツどうしが触れたときの摩擦。このワールドに設定した混ぜ方（[GripMixer]）を通す（設定し忘れたら、テストで分かるように） */
-    internal fun mixFrictionForTest(friction1: Double, friction2: Double): Double = world.valueMixer.mixFriction(friction1, friction2)
+    /**
+     * パーツどうしが触れたときの摩擦（[mixFriction]）。
+     * Box2D には、ワールドに設定した混ぜ方を読み出す方法が無いので、同じ関数を直接呼ぶ（設定し忘れは、滑り方のテストで分かる）
+     */
+    internal fun mixFrictionForTest(friction1: Double, friction2: Double): Double = mixFriction(friction1, 0, friction2, 0)
 
-    /** [piece] がいま触れている接触ごとの摩擦（台との接触は、[PlatformGrip] で置き換えたあとの値） */
-    internal fun contactFrictionsForTest(piece: Piece): List<Double> = world.getContacts(piece.body).map { it.friction }
+    /**
+     * [piece] がいま触れている接触ごとの摩擦（台との接触は、台の値で置き換えたあと）。
+     * Box2D の接触は摩擦を見せないので、触れている形の摩擦と印から [mixFriction] で求める
+     */
+    internal fun contactFrictionsForTest(piece: Piece): List<Double> =
+        piece.body.getContactData().map { c ->
+            mixFriction(c.shapeA.friction.toDouble(), c.shapeA.material, c.shapeB.friction.toDouble(), c.shapeB.material)
+        }
 
     // ---- 描画用 ----
 
@@ -346,96 +414,48 @@ class StackWorld(
 
     /**
      * 台と全パーツを、ワールド座標の図形にする（毎フレーム描画用）。
-     * 台は fixture の形、パーツは見た目の形（丸い。[PartGeometry.shapes]）。当たり判定の角ばった形は描かない
+     * 台は当たり判定の形、パーツは見た目の形（丸い。[PartGeometry.shapes]）。当たり判定の角ばった形は描かない
      */
     fun renderShapes(): List<RenderShape> {
         checkOpen()
         val out = ArrayList<RenderShape>()
-        appendShapes(platform, null, out)
+        appendPlatform(out)
         for ((b, p) in placed) appendVisual(b, p, out)
         return out
     }
 
     private fun appendVisual(body: Body, part: Part, out: MutableList<RenderShape>) {
-        val t = body.transform
-        val v = Vector2()
+        val position = body.position
+        val rotation = body.rotation
+        val c = rotation.cos.toDouble()
+        val s = rotation.sin.toDouble()
+        val px = position.x.toDouble()
+        val py = position.y.toDouble()
         for (poly in visuals[body].orEmpty()) {
             val n = poly.points.size
             val xs = DoubleArray(n)
             val ys = DoubleArray(n)
             for (i in 0 until n) {
-                v.set(poly.points[i].x, poly.points[i].y)
-                t.transform(v)
-                xs[i] = v.x
-                ys[i] = v.y
+                val p = poly.points[i]
+                xs[i] = c * p.x - s * p.y + px
+                ys[i] = s * p.x + c * p.y + py
             }
             out += RenderShape.Poly(part, xs, ys, bodyIds[body] ?: PLATFORM_BODY_ID)
         }
     }
 
-    private fun appendShapes(body: Body, part: Part?, out: MutableList<RenderShape>) {
-        val t = body.transform
-        for (f in body.fixtures) {
-            when (val shape = f.shape) {
-                is Polygon -> {
-                    val v = shape.vertices
-                    val xs = DoubleArray(v.size)
-                    val ys = DoubleArray(v.size)
-                    for (i in v.indices) {
-                        val w = t.getTransformed(v[i])
-                        xs[i] = w.x
-                        ys[i] = w.y
-                    }
-                    out += RenderShape.Poly(part, xs, ys, bodyIds[body] ?: PLATFORM_BODY_ID)
-                }
-                is Circle -> {
-                    val c = t.getTransformed(shape.center)
-                    out += RenderShape.Disc(part, c.x, c.y, shape.radius, bodyIds[body] ?: PLATFORM_BODY_ID)
-                }
-                else -> Unit
+    private fun appendPlatform(out: MutableList<RenderShape>) {
+        val t = platform.transform
+        for (shape in platform.getShapes()) {
+            val vertices = shape.getPolygon().vertices
+            val xs = DoubleArray(vertices.size)
+            val ys = DoubleArray(vertices.size)
+            for (i in vertices.indices) {
+                val w = t.transformPoint(vertices[i])
+                xs[i] = w.x.toDouble()
+                ys[i] = w.y.toDouble()
             }
-        }
-    }
-
-    /**
-     * パーツどうしが触れたときの摩擦の決め方。滑りやすい面（雨・雪の日のパーツ。[Grip]）があれば、滑りやすい方の値。
-     * 雪のパーツを乗せても、雪のパーツの上に乗せても滑る（dyn4j の決まり（掛けて平方根）だと、相手の面に引っ張られて、ほとんど滑らなかった）。
-     * 晴れのパーツどうしなどは、今までどおり掛けて平方根。
-     *
-     * 台との間はここでは決めず、[PlatformGrip] が台の印で見分けて置き換える（摩擦の値だけでは、台かパーツかを確実には見分けられないため）
-     */
-    private object GripMixer : ValueMixer {
-        override fun mixFriction(friction1: Double, friction2: Double): Double =
-            if (friction1 < Grip.NORMAL.friction || friction2 < Grip.NORMAL.friction) {
-                min(friction1, friction2)
-            } else {
-                ValueMixer.DEFAULT_MIXER.mixFriction(friction1, friction2)
-            }
-
-        override fun mixRestitution(restitution1: Double, restitution2: Double): Double =
-            ValueMixer.DEFAULT_MIXER.mixRestitution(restitution1, restitution2)
-
-        override fun mixRestitutionVelocity(restitutionVelocity1: Double, restitutionVelocity2: Double): Double =
-            ValueMixer.DEFAULT_MIXER.mixRestitutionVelocity(restitutionVelocity1, restitutionVelocity2)
-    }
-
-    /**
-     * 台との間の摩擦：パーツの天気によらず、晴れのパーツと同じ値（[PLATFORM_CONTACT_FRICTION]。台は滑らない）。
-     * 雪や雨のパーツでも、台に置いたものは滑り落ちない。台の上でも滑ると、5 本とも落ちて送れない回が増えたため
-     * （#71 の D のレビュー：雪だけで積むと 5% → 30.5%）。
-     *
-     * 台は、ボディの印（[PLATFORM_TAG]）で見分ける（#71 の C のレビュー。摩擦の値で見分けると、摩擦の大きいパーツを足したときに台と間違える）。
-     * dyn4j は毎コマ、接触の摩擦を [GripMixer] で決めてから [collision] を呼ぶので、ここで台との接触だけを置き換える
-     */
-    private object PlatformGrip : ContactListenerAdapter<Body>() {
-        override fun collision(collision: ContactCollisionData<Body>) {
-            val contact = collision.contactConstraint
-            if (contact.body1.userData == PLATFORM_TAG || contact.body2.userData == PLATFORM_TAG) {
-                // dyn4j は、接触ごとに摩擦を変える方法を非推奨にしたが、代わりが無い（摩擦を混ぜる ValueMixer には
-                // 摩擦の値しか渡らず、台かどうかを見分けられない）。dyn4j 6.0.0 でもこのまま効くので、警告だけ抑える
-                @Suppress("DEPRECATION")
-                contact.friction = PLATFORM_CONTACT_FRICTION
-            }
+            out += RenderShape.Poly(null, xs, ys, PLATFORM_BODY_ID)
         }
     }
 
@@ -454,7 +474,7 @@ class StackWorld(
 
         /**
          * まだ閉じていないワールド（テストの後始末 [closeAllForTest] 用）。弱い参照で持つので、閉じ忘れたワールドも
-         * ガベージコレクタは片付けられる（アプリでメモリを漏らさない。今の dyn4j では、閉じなくても前と同じ動き）
+         * ガベージコレクタは片付けられる（ただし C のメモリは残る。アプリでは、作った側が閉じる）
          */
         private val live = WeakHashMap<StackWorld, Unit>()
 
@@ -463,7 +483,44 @@ class StackWorld(
             synchronized(live) { live.keys.toList() }.forEach { it.close() }
         }
 
-        const val PLATFORM_TAG = "platform"
+        /** 重さ [m/s²] */
+        private const val GRAVITY = -9.8f
+
+        /** 1 ステップの時間 [s] と、1 回の [step] で進める最大のステップ数 */
+        private const val STEP_SECONDS = 1.0 / 60.0
+        private const val MAX_STEPS = 5
+
+        /** 1 ステップの中で、Box2D が細かく分けて解く回数（Box2D の勧める値） */
+        private const val SUB_STEPS = 4
+
+        /** これ以下の速さが [AT_REST_TIME] 続いたら、止まったとみなす（前のエンジンと同じ値） */
+        private const val AT_REST_LINEAR_VELOCITY = 0.05
+        private const val AT_REST_ANGULAR_VELOCITY = 0.1
+        private const val AT_REST_TIME = 0.8
+
+        /** 台の形の印（Box2D の material）。パーツは 0 */
+        private const val PLATFORM_MATERIAL = 1
+
+        /**
+         * 触れ合った 2 つの面の摩擦の決め方。
+         *
+         * - 台との間：パーツの天気によらず、晴れのパーツと同じ値（[PLATFORM_CONTACT_FRICTION]。台は滑らない）。
+         *   雪や雨のパーツでも、台に置いたものは滑り落ちない。台の上でも滑ると、5 本とも落ちて送れない回が増えたため
+         *   （#71 の D のレビュー：雪だけで積むと 5% → 30.5%）。台は、形の印（[PLATFORM_MATERIAL]）で見分ける
+         *   （#71 の C のレビュー。摩擦の値で見分けると、摩擦の大きいパーツを足したときに台と間違える）
+         * - パーツどうし：滑りやすい面（雨・雪の日のパーツ。[Grip]）があれば、滑りやすい方の値。雪のパーツを乗せても、
+         *   雪のパーツの上に乗せても滑る（掛けて平方根だと、相手の面に引っ張られて、ほとんど滑らなかった）。
+         *   晴れのパーツどうしなどは、掛けて平方根
+         */
+        private fun mixFriction(friction1: Double, material1: Int, friction2: Double, material2: Int): Double = when {
+            material1 == PLATFORM_MATERIAL || material2 == PLATFORM_MATERIAL -> PLATFORM_CONTACT_FRICTION
+            friction1 < Grip.NORMAL.friction || friction2 < Grip.NORMAL.friction -> min(friction1, friction2)
+            else -> sqrt(friction1 * friction2)
+        }
+
+        /** Box2D に渡す形（Float）。中の計算は [mixFriction] */
+        private fun mixFrictionCallback(friction1: Float, material1: Int, friction2: Float, material2: Int): Float =
+            mixFriction(friction1.toDouble(), material1, friction2.toDouble(), material2).toFloat()
 
         /** 台の図形の [RenderShape.body]（置いたパーツは 1 から） */
         const val PLATFORM_BODY_ID = 0

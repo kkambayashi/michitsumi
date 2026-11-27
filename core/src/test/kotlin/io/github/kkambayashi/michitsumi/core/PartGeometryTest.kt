@@ -2,9 +2,9 @@ package io.github.kkambayashi.michitsumi.core
 
 import io.github.kkambayashi.michitsumi.core.model.Part
 import io.github.kkambayashi.michitsumi.core.model.Pt
-import io.github.kkambayashi.michitsumi.core.physics.PartBodyFactory
 import io.github.kkambayashi.michitsumi.core.physics.PartGeometry
 import io.github.kkambayashi.michitsumi.core.physics.PartGeometry.Vec
+import io.github.kkambayashi.michitsumi.core.physics.StackWorld
 import io.github.kkambayashi.michitsumi.core.sample.SampleParts
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -108,7 +108,8 @@ class PartGeometryTest {
                     assertTrue("${p.id}: convex and counterclockwise", cross > 0)
                 }
             }
-            assertEquals(p.id, polys.size, PartBodyFactory.create(p).fixtureCount)
+            val shapeCount = StackWorld().use { it.place(p, x = 0.0, y = 2.0, angle = 0.0).shapeCount }
+            assertEquals(p.id, polys.size, shapeCount)
         }
     }
 
