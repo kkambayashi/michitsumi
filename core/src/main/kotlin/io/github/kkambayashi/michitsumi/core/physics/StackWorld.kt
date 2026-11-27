@@ -29,6 +29,9 @@ import kotlin.math.sqrt
  *   毎フレーム w.step(dt) → w.removeFallen()（落ちたパーツは、落ちた時点で取り除く。落ち続けるパーツは止まらないので、
  *   残しておくと isSettled() が true にならない）
  *   w.isSettled() が true になったら w.height()
+ *
+ * 物理エンジン（dyn4j）の型は、このクラスの外に出さない。置いたパーツは [Piece] で受け渡す
+ * （iOS 版で物理エンジンを替えても、画面・チャレンジ・テストを直さずに済むように）
  */
 class StackWorld(
     val platformWidth: Double = PLATFORM_WIDTH,
@@ -36,7 +39,8 @@ class StackWorld(
     /** これより下に落ちたパーツは「落下」扱い */
     val fallThresholdY: Double = -1.5,
 ) {
-    val world: World<Body> = World()
+    /** 物理エンジン（dyn4j）のワールド。外からは触らせない（[Piece] とテスト用の関数を通す） */
+    private val world: World<Body> = World()
 
     private val platform: Body
     private val placed = LinkedHashMap<Body, Part>()
@@ -109,8 +113,9 @@ class StackWorld(
      *
      * @param scale パーツの大きさ（長辺 [m]。歩いた距離で決まる。[PartSize.of]）
      * @param grip すべりやすさ（歩いたときの天気で決まる。[Grip.of]）
+     * @return 置いたパーツ（[freeze] に渡したり、テストで動きを見たりする）
      */
-    fun place(part: Part, x: Double, y: Double, angle: Double, scale: Double = 1.0, grip: Grip = Grip.NORMAL): Body {
+    fun place(part: Part, x: Double, y: Double, angle: Double, scale: Double = 1.0, grip: Grip = Grip.NORMAL): Piece {
         val body = PartBodyFactory.create(part, scale, PartBodyFactory.DEFAULT_MATERIAL.copy(friction = grip.friction))
         body.rotate(angle)
         body.translate(x, y)
@@ -120,7 +125,7 @@ class StackWorld(
         bodyIds[body] = nextBodyId++
         scales[body] = scale
         grips[body] = grip
-        return body
+        return Piece(body)
     }
 
     /**
@@ -128,7 +133,8 @@ class StackWorld(
      * 毎日 1 つずつ積むで、昨日までの塔を固めるのに使う（決定 70。今日のパーツが当たっても崩れないように）。
      * 固めたパーツも、塔の高さ・保存する配置・描く形には入る
      */
-    fun freeze(body: Body) {
+    fun freeze(piece: Piece) {
+        val body = piece.body
         require(body in placed) { "置いたパーツだけ固められる" }
         body.setMass(MassType.INFINITE)
         body.linearVelocity.zero()
@@ -219,6 +225,57 @@ class StackWorld(
         grips.clear()
         frozen.clear()
     }
+
+    /**
+     * 置いたパーツ 1 つ（[place] が返す）の持ち手。物理エンジンのボディは中に隠し、使う側には位置・速さなどだけを見せる。
+     * iOS 版で物理エンジンを替えるときに、StackWorld の外を直さずに済むようにするため
+     */
+    class Piece internal constructor(internal val body: Body) {
+        /** 重心の位置 [m] */
+        val centerX: Double get() = body.worldCenter.x
+        val centerY: Double get() = body.worldCenter.y
+
+        /** 速さ [m/s] */
+        val velocityX: Double get() = body.linearVelocity.x
+        val velocityY: Double get() = body.linearVelocity.y
+
+        /** 当たり判定の形（角ばった多角形）の数 */
+        val shapeCount: Int get() = body.fixtureCount
+
+        /** 当たり判定の形ごとの、面の摩擦 */
+        val frictions: List<Double> get() = body.fixtures.map { it.friction }
+
+        /** この速さ [m/s] で動かす。止まっていたパーツも起こして動かす */
+        fun push(vx: Double, vy: Double) {
+            body.setAtRest(false)
+            body.setLinearVelocity(vx, vy)
+        }
+    }
+
+    // ---- テスト用（物理エンジンの型を出さずに、テストから中を動かす。同じモジュールのテストだけが使える） ----
+
+    /** 重さの向きと大きさ [m/s²] を変える（0 にすると、置いた形が浮いたままになる） */
+    internal fun setGravityForTest(x: Double, y: Double) {
+        world.setGravity(x, y)
+    }
+
+    /** 最後に置いたパーツを、減衰なしで回し続ける（いつまでも止まらない塔を作る） */
+    internal fun spinLastForTest(angularVelocity: Double) {
+        val body = placed.keys.last()
+        body.angularDamping = 0.0
+        body.angularVelocity = angularVelocity
+    }
+
+    /** 最後に置いたパーツを、その場から動かす（塔が崩れた様子を作る） */
+    internal fun moveLastForTest(dx: Double, dy: Double) {
+        placed.keys.last().translate(dx, dy)
+    }
+
+    /** パーツどうしが触れたときの摩擦の決め方（[GripMixer]） */
+    internal fun mixFrictionForTest(friction1: Double, friction2: Double): Double = GripMixer.mixFriction(friction1, friction2)
+
+    /** [piece] がいま触れている接触ごとの摩擦（台との接触は、[PlatformGrip] で置き換えたあとの値） */
+    internal fun contactFrictionsForTest(piece: Piece): List<Double> = world.getContacts(piece.body).map { it.friction }
 
     // ---- 描画用 ----
 

@@ -90,9 +90,9 @@ class StackWorldTest {
     fun `placed parts are drawn round while their bodies stay angular`() {
         val world = StackWorld()
         val l = SampleParts.all.first { it.points.size >= 3 }
-        val body = world.place(l, x = 0.0, y = 2.0, angle = 0.3)
+        val piece = world.place(l, x = 0.0, y = 2.0, angle = 0.3)
         // 当たり判定は角ばった形（fixture）、描くのは丸い見た目の形
-        assertEquals(PartGeometry.collisionShapes(l).size, body.fixtureCount)
+        assertEquals(PartGeometry.collisionShapes(l).size, piece.shapeCount)
         val shapes = world.renderShapes()
         assertEquals(1 + PartGeometry.shapes(l).size, shapes.size) // 台＋見た目の多角形
         // 見た目の多角形は、置いた位置のまわりにある（ボディの位置・向きに動かしてある）
@@ -128,14 +128,13 @@ class StackWorldTest {
                 world.place(bar, x = 0.0, y = 0.3, angle = Math.PI / 2)
                 settle(world)
             }
-            val body = world.place(bar, x = -0.2, y = world.height() + 0.3, angle = Math.PI / 2, grip = grip)
-            assertTrue(body.fixtures.all { it.friction == grip.friction })
+            val piece = world.place(bar, x = -0.2, y = world.height() + 0.3, angle = Math.PI / 2, grip = grip)
+            assertTrue(piece.frictions.all { it == grip.friction })
             settle(world)
-            val start = body.worldCenter.x
-            body.setAtRest(false) // 止まったボディは、起こさないと押しても動かない
-            body.setLinearVelocity(1.5, 0.0)
+            val start = piece.centerX
+            piece.push(1.5, 0.0) // 止まったパーツも起こして押す
             repeat(120) { world.step(1.0 / 60.0) }
-            return body.worldCenter.x - start
+            return piece.centerX - start
         }
         val normalOnBar = slide(Grip.NORMAL, onBar = true)
         val icyOnBar = slide(Grip.ICY, onBar = true)
@@ -148,22 +147,22 @@ class StackWorldTest {
     @Test
     fun `slippery parts slip on each other but never on the platform`() {
         // パーツどうし：晴れどうしは前と同じ（掛けて平方根）、滑りやすい面があれば滑りやすい方（乗せても、乗せられても滑る）
-        val mixer = StackWorld().world.valueMixer
-        assertEquals(0.7, mixer.mixFriction(Grip.NORMAL.friction, Grip.NORMAL.friction), 1e-9)
-        assertEquals(Grip.WET.friction, mixer.mixFriction(Grip.NORMAL.friction, Grip.WET.friction), 1e-9)
-        assertEquals(Grip.ICY.friction, mixer.mixFriction(Grip.ICY.friction, Grip.NORMAL.friction), 1e-9)
-        assertEquals(Grip.ICY.friction, mixer.mixFriction(Grip.WET.friction, Grip.ICY.friction), 1e-9)
+        val mixing = StackWorld()
+        assertEquals(0.7, mixing.mixFrictionForTest(Grip.NORMAL.friction, Grip.NORMAL.friction), 1e-9)
+        assertEquals(Grip.WET.friction, mixing.mixFrictionForTest(Grip.NORMAL.friction, Grip.WET.friction), 1e-9)
+        assertEquals(Grip.ICY.friction, mixing.mixFrictionForTest(Grip.ICY.friction, Grip.NORMAL.friction), 1e-9)
+        assertEquals(Grip.ICY.friction, mixing.mixFrictionForTest(Grip.WET.friction, Grip.ICY.friction), 1e-9)
 
         // 台との間：台の印で見分けて、どの天気のパーツでも晴れと同じ値にする（台は滑らない）。実際の接触の摩擦で確かめる
         val sunnyOnPlatform = kotlin.math.sqrt(Grip.NORMAL.friction * StackWorld.PLATFORM_FRICTION)
         assertEquals(sunnyOnPlatform, StackWorld.PLATFORM_CONTACT_FRICTION, 1e-9)
         for (grip in Grip.entries) {
             val world = StackWorld()
-            val body = world.place(SampleParts.byId("sample-bar")!!, x = 0.0, y = 0.3, angle = Math.PI / 2, grip = grip)
+            val piece = world.place(SampleParts.byId("sample-bar")!!, x = 0.0, y = 0.3, angle = Math.PI / 2, grip = grip)
             settle(world)
-            val contacts = world.world.getContacts(body)
-            assertTrue("${grip.name} touches the platform", contacts.isNotEmpty())
-            contacts.forEach { assertEquals(grip.name, sunnyOnPlatform, it.friction, 1e-9) }
+            val frictions = world.contactFrictionsForTest(piece)
+            assertTrue("${grip.name} touches the platform", frictions.isNotEmpty())
+            frictions.forEach { assertEquals(grip.name, sunnyOnPlatform, it, 1e-9) }
         }
     }
 
@@ -267,7 +266,7 @@ class StackWorldTest {
         var n = 0
         for (part in SampleParts.all) for (angle in listOf(0.0, 30.0, 75.0, 120.0)) {
             val world = StackWorld()
-            val body = world.place(part, 0.0, 1.5, Math.toRadians(angle), PartSize.of(part.distanceM))
+            val piece = world.place(part, 0.0, 1.5, Math.toRadians(angle), PartSize.of(part.distanceM))
             var touched = false
             var lowest = Double.MAX_VALUE
             var rebound = 0.0
@@ -276,10 +275,10 @@ class StackWorldTest {
                 world.step(1.0 / 60)
                 t += 1.0 / 60
                 // 落ちる速さが落ちたら、着いたことにする
-                if (!touched && t > 0.2 && body.linearVelocity.y > -0.5) touched = true
+                if (!touched && t > 0.2 && piece.velocityY > -0.5) touched = true
                 if (touched) {
-                    lowest = minOf(lowest, body.worldCenter.y)
-                    rebound = maxOf(rebound, body.worldCenter.y - lowest)
+                    lowest = minOf(lowest, piece.centerY)
+                    rebound = maxOf(rebound, piece.centerY - lowest)
                 }
             }
             sum += rebound
