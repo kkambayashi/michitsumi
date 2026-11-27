@@ -3,6 +3,7 @@ package io.github.kkambayashi.michitsumi.ui.game
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.annotation.VisibleForTesting
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.kkambayashi.michitsumi.core.model.Part
@@ -266,6 +267,7 @@ class StackViewModel(
         result = null
         settleTimer = 0.0
         startMessage = null
+        world.close() // 前のゲームのワールドは、もう使わない
         world = newWorld()
         pool = parts.distinctBy { it.id }
         sessionOrigins = origins
@@ -467,6 +469,13 @@ class StackViewModel(
                 if (runId == uploadingRunId) uploading = false
             }
         }
+    }
+
+    /** 画面が片付けられるとき：物理ワールドを閉じる（[StackWorld.close]） */
+    @VisibleForTesting
+    public override fun onCleared() {
+        world.close()
+        super.onCleared()
     }
 
     companion object {

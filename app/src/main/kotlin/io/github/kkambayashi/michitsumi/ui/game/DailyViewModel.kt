@@ -4,6 +4,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.annotation.VisibleForTesting
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.kkambayashi.michitsumi.core.daily.DailyBlock
@@ -179,6 +180,7 @@ class DailyViewModel(
      * （前は止めておくだけで、当たると動き出して、昨日までのパーツが落ちることがあった）
      */
     private fun rebuild() {
+        world.close() // 組み直す前のワールドは、もう使わない
         world = newWorld()
         for (block in tower.blocks) {
             val p = block.placement
@@ -358,6 +360,13 @@ class DailyViewModel(
             for (v in poly.points) reach = max(reach, hypot(v.x, v.y))
         }
         return reach.toFloat()
+    }
+
+    /** 画面が片付けられるとき：物理ワールドを閉じる（[StackWorld.close]） */
+    @VisibleForTesting
+    public override fun onCleared() {
+        world.close()
+        super.onCleared()
     }
 
     companion object {

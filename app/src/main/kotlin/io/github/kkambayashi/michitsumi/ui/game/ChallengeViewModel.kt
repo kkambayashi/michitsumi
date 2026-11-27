@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.annotation.VisibleForTesting
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.kkambayashi.michitsumi.core.challenge.ChallengeRules
@@ -173,6 +174,7 @@ class ChallengeViewModel(
     fun start() {
         if (!canStart) return
         run?.pause()
+        run?.close() // 前の回は、もう使わない
         run = newRun(style)
         generation++
         publishFrame()
@@ -182,6 +184,7 @@ class ChallengeViewModel(
     fun restart() {
         if (frame?.terminal == true) return
         run?.pause()
+        run?.close()
         run = null
         start()
     }
@@ -194,6 +197,7 @@ class ChallengeViewModel(
     fun leave() {
         countdown = 0
         run?.pause()
+        run?.close()
         run = null
         frame = null
         shapes = emptyList()
@@ -342,6 +346,13 @@ class ChallengeViewModel(
                 if (request == operation) saving = false
             }
         }
+    }
+
+    /** 画面が片付けられるとき：今の回の物理ワールドを閉じる（[ChallengeRun.close]） */
+    @VisibleForTesting
+    public override fun onCleared() {
+        run?.close()
+        super.onCleared()
     }
 
     companion object {

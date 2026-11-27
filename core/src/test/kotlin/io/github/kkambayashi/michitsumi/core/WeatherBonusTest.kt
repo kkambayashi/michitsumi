@@ -10,10 +10,14 @@ import io.github.kkambayashi.michitsumi.core.sample.SampleParts
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Test
 
 /** 天気のボーナス（決定 68）：塔に残ったパーツの天気で、模型を大きくする倍率 */
 class WeatherBonusTest {
+    /** テストで作った物理ワールドを閉じる（閉じ忘れても、次のテストに持ち越さない） */
+    @After fun closeWorlds() = StackWorld.closeAllForTest()
+
 
     @Test
     fun `more slippery weather adds more`() {

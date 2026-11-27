@@ -15,6 +15,8 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import io.github.kkambayashi.michitsumi.core.physics.StackWorld
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -30,6 +32,20 @@ import kotlin.random.Random
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class StackViewModelTest {
+    /** テストで作った物理ワールドを閉じる（閉じ忘れても、次のテストに持ち越さない） */
+    @After fun closeWorlds() = StackWorld.closeAllForTest()
+
+    @Test
+    fun `やり直しても物理ワールドは増えず、画面を片付けると閉じる`() {
+        val before = StackWorld.openCount
+        val vm = StackViewModel()
+        vm.updateInventory(listOf(a, b), true) // 読み込みが済んで、ゲームが始まる（始まる前の restart は何もしない）
+        assertEquals(StackViewModel.Phase.Placing, vm.phase)
+        repeat(3) { vm.restart(listOf(a, b)) }
+        assertEquals("前のゲームのワールドは閉じる", before + 1, StackWorld.openCount)
+        vm.onCleared()
+        assertEquals(before, StackWorld.openCount)
+    }
     private val a = SampleParts.all.first().copy(id = "a", name = "before")
     private val b = a.copy(id = "b")
     private val c = a.copy(id = "c")
