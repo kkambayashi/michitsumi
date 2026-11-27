@@ -35,7 +35,7 @@ object PartBodyFactory {
     /**
      * @param scale パーツの長辺 [m]
      */
-    fun create(part: Part, scale: Double = 1.0, material: Material = DEFAULT_MATERIAL): Body {
+    internal fun create(part: Part, scale: Double = 1.0, material: Material = DEFAULT_MATERIAL): Body {
         val body = Body()
         // 当たり判定は角ばった形（見た目は丸い。PartGeometry）
         for (poly in PartGeometry.collisionShapes(part, scale)) {

@@ -291,8 +291,8 @@ class ChallengeRun(
 
     /** 今の位置（[ghostY]）から物理で落とす。自動で落ちるときは、下がっていた速さのまま落ち始める */
     private fun drop() {
-        val body = world.place(current, x, ghostY, Math.toRadians(angle))
-        if (style == ChallengeStyle.AUTO) body.linearVelocity.y = -ChallengeRules.AUTO_FALL_SPEED_M_S
+        val piece = world.place(current, x, ghostY, Math.toRadians(angle))
+        if (style == ChallengeStyle.AUTO) piece.push(0.0, -ChallengeRules.AUTO_FALL_SPEED_M_S)
         phase = Phase.FALLING
         settling = 0.0
         settleWait = 0.0

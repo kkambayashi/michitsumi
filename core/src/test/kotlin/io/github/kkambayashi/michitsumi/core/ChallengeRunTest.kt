@@ -8,10 +8,10 @@ class ChallengeRunTest {
     @Test fun `intermediate moving tower continues until the actual deadline`() {
         var now = 0L
         val physics = io.github.kkambayashi.michitsumi.core.physics.StackWorld()
-        physics.world.setGravity(0.0, 0.0)
+        physics.setGravityForTest(0.0, 0.0)
         val run = ChallengeRun(1, clock = { now }, world = physics)
         run.resume(); val first = run.current.id; run.place()
-        physics.world.bodies.last().apply { angularDamping = 0.0; angularVelocity = 1.0 } // 回り続ける塔（減衰を外す。決定 63 でふだんは 3.0）
+        physics.spinLastForTest(1.0) // 回り続ける塔（減衰を外す。決定 63 でふだんは 3.0）
         repeat(121) { now += 50_000_000; run.tick() }
         assertEquals(ChallengeRun.Phase.AIMING, run.phase)
         assertNotEquals(first, run.current.id)
@@ -21,10 +21,10 @@ class ChallengeRunTest {
     @Test fun `final wait is bounded by foreground time even at low frame rates`() {
         var now = 0L
         val physics = io.github.kkambayashi.michitsumi.core.physics.StackWorld()
-        physics.world.setGravity(0.0, 0.0)
+        physics.setGravityForTest(0.0, 0.0)
         val run = ChallengeRun(1, clock = { now }, world = physics)
         run.resume(); run.place()
-        physics.world.bodies.last().apply { angularDamping = 0.0; angularVelocity = 1.0 } // 回り続ける塔（減衰を外す。決定 63 でふだんは 3.0）
+        physics.spinLastForTest(1.0) // 回り続ける塔（減衰を外す。決定 63 でふだんは 3.0）
         now = ChallengeRules.DURATION_NS; run.tick()
         run.pause(); now += 100_000_000_000; run.resume()
         repeat(5) { now += 1_000_000_000; run.tick() }
@@ -76,10 +76,10 @@ class ChallengeRunTest {
     @Test fun `途中の揺れ待ちは 3 秒までで、揺れていても次の形へ進む`() {
         var now = 0L
         val physics = io.github.kkambayashi.michitsumi.core.physics.StackWorld()
-        physics.world.setGravity(0.0, 0.0)
+        physics.setGravityForTest(0.0, 0.0)
         val run = ChallengeRun(1, clock = { now }, world = physics)
         run.resume(); val first = run.current.id; run.place()
-        physics.world.bodies.last().apply { angularDamping = 0.0; angularVelocity = 1.0 } // 回り続ける塔（減衰を外す。決定 63 でふだんは 3.0）
+        physics.spinLastForTest(1.0) // 回り続ける塔（減衰を外す。決定 63 でふだんは 3.0）
         repeat(58) { now += 50_000_000; run.tick() } // 2.9 秒
         assertEquals(ChallengeRun.Phase.FALLING, run.phase)
         repeat(3) { now += 50_000_000; run.tick() } // 3.05 秒
@@ -90,7 +90,7 @@ class ChallengeRunTest {
     @Test fun `狙っている間に塔が崩れて低くなったら、出てくる高さと見せたい上も下がる（上がる向きには動かない）`() {
         var now = 0L
         val physics = io.github.kkambayashi.michitsumi.core.physics.StackWorld()
-        physics.world.setGravity(0.0, 0.0)
+        physics.setGravityForTest(0.0, 0.0)
         val run = ChallengeRun(1, clock = { now }, world = physics)
         // 重さの無い世界で、出てきた高さに浮いたまま次の形へ進む（揺れ待ちの上限まで待つ）。塔の高さは浮いている形のてっぺん
         run.resume(); run.place()
@@ -101,8 +101,7 @@ class ChallengeRunTest {
         assertEquals(high + ChallengeRun.SPAWN_ABOVE_M, run.spawnY, 1e-9)
 
         // 狙っている間に塔が崩れて、形が台の近くまで下がった
-        val body = physics.world.bodies.last()
-        body.translate(0.0, -(high - 0.4))
+        physics.moveLastForTest(0.0, -(high - 0.4))
         now += 50_000_000; run.tick()
         assertTrue("崩れたあとの高さ（${run.towerHeight}）まで下がる", run.towerHeight < high - 0.5)
         assertEquals(run.towerHeight + ChallengeRun.SPAWN_ABOVE_M, run.spawnY, 1e-9)
@@ -110,7 +109,7 @@ class ChallengeRunTest {
 
         // 狙っている間に高くなることはない（揺れで少し跳ねても、出てくる高さは上げない）
         val low = run.towerHeight
-        body.translate(0.0, 0.5)
+        physics.moveLastForTest(0.0, 0.5)
         now += 50_000_000; run.tick()
         assertEquals(low, run.towerHeight, 0.0)
     }
@@ -153,10 +152,10 @@ class ChallengeRunTest {
     @Test fun `moving tower times out without a ranked airborne height`() {
         var now = 0L
         val physics = io.github.kkambayashi.michitsumi.core.physics.StackWorld()
-        physics.world.setGravity(0.0, 0.0)
+        physics.setGravityForTest(0.0, 0.0)
         val run = ChallengeRun(1, clock = { now }, world = physics)
         run.resume(); run.place()
-        physics.world.bodies.last().apply { angularDamping = 0.0; angularVelocity = 1.0 } // 回り続ける塔（減衰を外す。決定 63 でふだんは 3.0）
+        physics.spinLastForTest(1.0) // 回り続ける塔（減衰を外す。決定 63 でふだんは 3.0）
         now = ChallengeRules.DURATION_NS; run.tick()
         repeat(125) { now += 50_000_000; run.tick() }
         assertEquals(ChallengeRun.Phase.UNRESOLVED, run.phase)
