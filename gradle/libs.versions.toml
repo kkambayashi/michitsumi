@@ -8,7 +8,7 @@ jib = "3.5.4"
 compileSdk = "37.1"
 minSdk = "26"
 targetSdk = "35"
-composeBom = "2025.06.00"
+composeBom = "2026.11.01"
 activityCompose = "1.10.1"
 navigationCompose = "2.10.2"
 lifecycle = "2.9.0"
@@ -44,6 +44,8 @@ compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
 compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
 compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+# Icons.Filled.Close などのアイコン。新しい material3 は自動では付けてこないので、はっきり書く（版は BOM の 1.7.8）
+compose-material-icons-core = { group = "androidx.compose.material", name = "material-icons-core" }
 
 # Google
 play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }

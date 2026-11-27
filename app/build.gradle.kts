@@ -122,6 +122,7 @@ dependencies {
     implementation(libs.compose.ui.graphics)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
+    implementation(libs.compose.material.icons.core)
     // 手持ちのドラッグでの並べ替え（LazyVerticalGrid 用。Apache-2.0）
     implementation(libs.reorderable)
     debugImplementation(libs.compose.ui.tooling)
