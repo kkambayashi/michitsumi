@@ -27,6 +27,8 @@ fun Application.module(
 ) {
     install(ContentNegotiation) { json(AppJson) }
     install(CallLogging)
+    // 思わぬ例外でも、例外の文言（中の様子）を応答に書かない（ErrorResponses.kt）
+    install(HideErrorDetails)
     // CORS は入れない（決定 57）。ブラウザからこのサーバの API を呼ぶ画面は無く（アプリはブラウザではない。共有ページはサーバ自身が返す）、
     // 「どこからでも可」にしておくと、ほかのサイトが訪問者のブラウザからこの API を叩けてしまうため。
     // 別のドメインのウェブ画面から呼ぶことになったら、そのドメインだけを許す形で入れ直す
