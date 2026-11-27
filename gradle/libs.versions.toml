@@ -16,7 +16,7 @@ coreKtx = "1.16.0"
 
 # --- Google ---
 playServicesLocation = "21.4.0"
-mapsCompose = "6.4.1"
+mapsCompose = "9.0.1"
 
 # --- 共通ライブラリ ---
 coroutines = "1.11.0"
