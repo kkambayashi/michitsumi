@@ -1,6 +1,8 @@
 package io.github.kkambayashi.michitsumi.ui.game
 
 import io.github.kkambayashi.michitsumi.core.challenge.ChallengeRun
+import io.github.kkambayashi.michitsumi.core.physics.StackWorld
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -8,6 +10,9 @@ import org.junit.Test
 
 /** 「回す」は、押している間なめらかに回る（決定 71。前は 15° ずつ。#114） */
 class RotateButtonsTest {
+    /** テストで作った物理ワールドを閉じる（閉じ忘れても、次のテストに持ち越さない） */
+    @After fun closeWorlds() = StackWorld.closeAllForTest()
+
     private val frame = 16_666_667L // 60 fps の 1 コマ [ns]
 
     @Test

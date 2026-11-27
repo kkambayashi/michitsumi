@@ -14,6 +14,7 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import io.github.kkambayashi.michitsumi.core.physics.StackWorld
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -35,7 +36,20 @@ class DailyViewModelTest {
     private val savedFalls = java.util.concurrent.CopyOnWriteArrayList<Int>()
 
     @Before fun setUp() { Dispatchers.setMain(UnconfinedTestDispatcher()) }
-    @After fun cleanup() { Dispatchers.resetMain() }
+    @After fun cleanup() {
+        Dispatchers.resetMain()
+        StackWorld.closeAllForTest() // テストで作った物理ワールドを閉じる（次のテストに持ち越さない）
+    }
+
+    @Test
+    fun `塔を組み直しても物理ワールドは増えず、画面を片付けると閉じる`() {
+        val before = StackWorld.openCount
+        val vm = newVm(DailyTower()) // 読み込んだら組み直す（はじめのワールドは閉じる）
+        assertEquals("読み込んで組み直しが済んだ", DailyViewModel.Phase.Viewing, vm.phase)
+        assertEquals(before + 1, StackWorld.openCount)
+        vm.onCleared()
+        assertEquals(before, StackWorld.openCount)
+    }
 
     private fun part(id: String) = Part(id = id, points = listOf(Pt(-0.5f, 0f), Pt(0.5f, 0f)), kind = Kind.BAR, distanceM = 400, walkedAt = 0L)
 

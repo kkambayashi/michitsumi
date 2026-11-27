@@ -3,12 +3,17 @@ package io.github.kkambayashi.michitsumi.ui.game
 import io.github.kkambayashi.michitsumi.core.sample.SampleParts
 import io.github.kkambayashi.michitsumi.data.PartOrigin
 import io.github.kkambayashi.michitsumi.data.WalkDistance
+import io.github.kkambayashi.michitsumi.core.physics.StackWorld
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame
 import org.junit.Test
 
 /** 完成カードの「使った道」の行（walkedLines）と、その距離をゲームを始めたときに固定すること */
 class WalkedLinesTest {
+    /** テストで作った物理ワールドを閉じる（閉じ忘れても、次のテストに持ち越さない） */
+    @After fun closeWorlds() = StackWorld.closeAllForTest()
+
 
     @Test
     fun `歩いた道だけなら、合計の 1 行`() {

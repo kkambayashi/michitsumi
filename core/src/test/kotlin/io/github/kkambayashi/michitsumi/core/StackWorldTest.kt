@@ -14,9 +14,33 @@ import io.github.kkambayashi.michitsumi.core.weather.Sky
 import io.github.kkambayashi.michitsumi.core.model.Tower
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Test
+import kotlin.test.assertFailsWith
 
 class StackWorldTest {
+    /** テストで作った物理ワールドを閉じる（閉じ忘れても、次のテストに持ち越さない） */
+    @After fun closeWorlds() = StackWorld.closeAllForTest()
+
+    @Test
+    fun `閉じたワールドは使えず、開いている数から外れる`() {
+        val before = StackWorld.openCount
+        val world = StackWorld()
+        val piece = world.place(SampleParts.all.first(), x = 0.0, y = 1.0, angle = 0.0)
+        assertEquals(before + 1, StackWorld.openCount)
+
+        world.close()
+        assertTrue(world.isClosed)
+        assertEquals(before, StackWorld.openCount)
+        world.close() // 2 回目は何もしない
+        assertEquals(before, StackWorld.openCount)
+
+        // 閉じたあとに使ったら、すぐ止める（エンジンを替えたあとは、閉じたワールドに触ると落ちるので）
+        assertFailsWith<IllegalStateException> { world.step(1.0 / 60) }
+        assertFailsWith<IllegalStateException> { world.height() }
+        assertFailsWith<IllegalStateException> { world.renderShapes() }
+        assertFailsWith<IllegalStateException> { piece.centerY }
+    }
 
     private fun settle(world: StackWorld, maxSeconds: Double = 10.0): Double {
         var t = 0.0

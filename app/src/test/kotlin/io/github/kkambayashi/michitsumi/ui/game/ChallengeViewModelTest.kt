@@ -11,13 +11,43 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.*
+import io.github.kkambayashi.michitsumi.core.physics.StackWorld
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChallengeViewModelTest {
-    @After fun cleanup() { Dispatchers.resetMain() }
+    @After fun cleanup() {
+        Dispatchers.resetMain()
+        StackWorld.closeAllForTest() // テストで作った物理ワールドを閉じる（次のテストに持ち越さない）
+    }
+
+    @Test fun `回を作り直しても物理ワールドは増えず、離れたり片付けたりすると閉じる`() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val before = StackWorld.openCount
+        var now = 0L
+        val vm = ChallengeViewModel(updateRecords = { listOfNotNull(it) }, newRun = { ChallengeRun(1, clock = { now }) })
+        vm.start(); vm.restart(); vm.restart() // やり直す
+        assertEquals("やり直す前の回のワールドは閉じる", before + 1, StackWorld.openCount)
+
+        // 1 回を最後まで遊び、記録を保存してから「もう一度」（start() が前の回を閉じる）
+        vm.resume()
+        now = ChallengeRules.DURATION_NS; vm.tick()
+        repeat(20) { now += 50_000_000; vm.tick() }
+        advanceUntilIdle()
+        assertTrue(vm.frame!!.terminal)
+        assertTrue(vm.canStart)
+        vm.start()
+        assertEquals("終わった回のワールドは閉じる", before + 1, StackWorld.openCount)
+
+        vm.leave()
+        assertEquals(before, StackWorld.openCount)
+        vm.start()
+        assertEquals("離れたあと、新しい回を作った", before + 1, StackWorld.openCount)
+        vm.onCleared()
+        assertEquals(before, StackWorld.openCount)
+    }
 
     @Test fun `result saves without a screen and only once despite repeated pause`() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))

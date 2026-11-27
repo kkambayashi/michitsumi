@@ -2,9 +2,21 @@ package io.github.kkambayashi.michitsumi.core
 
 import io.github.kkambayashi.michitsumi.core.challenge.*
 import org.junit.Assert.*
+import io.github.kkambayashi.michitsumi.core.physics.StackWorld
+import org.junit.After
 import org.junit.Test
 
 class ChallengeRunTest {
+    /** テストで作った物理ワールドを閉じる（閉じ忘れても、次のテストに持ち越さない） */
+    @After fun closeWorlds() = StackWorld.closeAllForTest()
+
+    @Test fun `回を閉じると、物理ワールドも閉じる`() {
+        val before = StackWorld.openCount
+        val run = ChallengeRun(1)
+        assertEquals(before + 1, StackWorld.openCount)
+        run.close()
+        assertEquals(before, StackWorld.openCount)
+    }
     @Test fun `intermediate moving tower continues until the actual deadline`() {
         var now = 0L
         val physics = io.github.kkambayashi.michitsumi.core.physics.StackWorld()

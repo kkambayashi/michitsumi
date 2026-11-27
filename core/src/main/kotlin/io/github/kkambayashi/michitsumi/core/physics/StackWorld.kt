@@ -14,6 +14,8 @@ import org.dyn4j.world.ContactCollisionData
 import org.dyn4j.world.ValueMixer
 import org.dyn4j.world.World
 import org.dyn4j.world.listener.ContactListenerAdapter
+import java.util.WeakHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.min
 import kotlin.math.sqrt
 
@@ -29,6 +31,7 @@ import kotlin.math.sqrt
  *   毎フレーム w.step(dt) → w.removeFallen()（落ちたパーツは、落ちた時点で取り除く。落ち続けるパーツは止まらないので、
  *   残しておくと isSettled() が true にならない）
  *   w.isSettled() が true になったら w.height()
+ *   使い終わったら w.close()（作った側が必ず閉じる。[close]）
  *
  * 物理エンジン（dyn4j）の型は、このクラスの外に出さない。置いたパーツは [Piece] で受け渡す
  * （iOS 版で物理エンジンを替えても、画面・チャレンジ・テストを直さずに済むように）
@@ -38,7 +41,7 @@ class StackWorld(
     val platformThickness: Double = PLATFORM_THICKNESS,
     /** これより下に落ちたパーツは「落下」扱い */
     val fallThresholdY: Double = -1.5,
-) {
+) : AutoCloseable {
     /** 物理エンジン（dyn4j）のワールド。外からは触らせない（[Piece] とテスト用の関数を通す） */
     private val world: World<Body> = World()
 
@@ -80,9 +83,12 @@ class StackWorld(
     data class PlacedMark(val grip: Grip, val x: Double, val topY: Double)
 
     /** 置かれているパーツごとの [PlacedMark]（落下で消えたものは含まない。置いた順） */
-    fun placedMarks(): List<PlacedMark> = placed.keys.map { body ->
-        val box = body.createAABB()
-        PlacedMark(grips[body] ?: Grip.NORMAL, (box.minX + box.maxX) / 2, box.maxY)
+    fun placedMarks(): List<PlacedMark> {
+        checkOpen()
+        return placed.keys.map { body ->
+            val box = body.createAABB()
+            PlacedMark(grips[body] ?: Grip.NORMAL, (box.minX + box.maxX) / 2, box.maxY)
+        }
     }
 
     init {
@@ -108,6 +114,34 @@ class StackWorld(
         world.addBody(platform)
     }
 
+    /** 閉じたか（[close]） */
+    var isClosed: Boolean = false
+        private set
+
+    /**
+     * 使い終わったワールドを閉じる。閉じたあとは使えない（使うと IllegalStateException）。2 回目からは何もしない。
+     *
+     * 今の物理エンジン（dyn4j）は Java で書かれていて、使わなくなればガベージコレクタが片付けるので、閉じなくても漏れない。
+     * ただ、iOS 版のために考えている Box2D（Boks2d）は C のメモリを使うので、閉じないと漏れる。同時に作れるワールドも
+     * 128 個までで、作る・消すはスレッドに対して安全でない（ガベージコレクタに任せて別のスレッドで消すことはできない）。
+     * エンジンを替えても使う側を直さずに済むよう、今のうちから、作った側が使い終わった時点で閉じる
+     */
+    override fun close() {
+        if (isClosed) return
+        try {
+            clear()
+            world.removeAllBodies()
+        } finally {
+            // 片付けの途中で例外が出ても、閉じたことにする（数え直しや、閉じたあとの使用の検出がずれないように）
+            isClosed = true
+            openNow.decrementAndGet()
+            synchronized(live) { live.remove(this) }
+        }
+    }
+
+    /** 閉じたワールドを使おうとしたら止める（エンジンを替えたあとは、閉じたワールドに触ると落ちるので、今のうちに見つける） */
+    private fun checkOpen() = check(!isClosed) { "閉じた StackWorld は使えない" }
+
     /**
      * パーツをワールドに追加して落下させる。
      *
@@ -116,6 +150,7 @@ class StackWorld(
      * @return 置いたパーツ（[freeze] に渡したり、テストで動きを見たりする）
      */
     fun place(part: Part, x: Double, y: Double, angle: Double, scale: Double = 1.0, grip: Grip = Grip.NORMAL): Piece {
+        checkOpen()
         val body = PartBodyFactory.create(part, scale, PartBodyFactory.DEFAULT_MATERIAL.copy(friction = grip.friction))
         body.rotate(angle)
         body.translate(x, y)
@@ -125,7 +160,7 @@ class StackWorld(
         bodyIds[body] = nextBodyId++
         scales[body] = scale
         grips[body] = grip
-        return Piece(body)
+        return Piece(body, this)
     }
 
     /**
@@ -134,6 +169,7 @@ class StackWorld(
      * 固めたパーツも、塔の高さ・保存する配置・描く形には入る
      */
     fun freeze(piece: Piece) {
+        checkOpen()
         val body = piece.body
         require(body in placed) { "置いたパーツだけ固められる" }
         body.setMass(MassType.INFINITE)
@@ -150,6 +186,7 @@ class StackWorld(
      * @param scale パーツの大きさ（長辺 [m]）
      */
     fun overlaps(part: Part, x: Double, y: Double, angle: Double, scale: Double = 1.0): Boolean {
+        checkOpen()
         val transform = Transform().apply {
             rotate(angle)
             translate(x, y)
@@ -169,18 +206,26 @@ class StackWorld(
 
     /** 経過時間ぶん進める。内部は固定ステップ（1/60 s）。 */
     fun step(elapsedSeconds: Double) {
+        checkOpen()
         // 一度に進めすぎない（アプリ復帰時など）
         world.update(elapsedSeconds.coerceIn(0.0, 0.1), 5)
     }
 
     /** 全パーツが静止しているか（固めたパーツ（[freeze]）は動かないので見ない）。 */
-    fun isSettled(): Boolean = placed.keys.all { it in frozen || it.isAtRest }
+    fun isSettled(): Boolean {
+        checkOpen()
+        return placed.keys.all { it in frozen || it.isAtRest }
+    }
 
     /** まだ動いているパーツの数（固めたパーツは数えない）。 */
-    fun movingCount(): Int = placed.keys.count { it !in frozen && !it.isAtRest }
+    fun movingCount(): Int {
+        checkOpen()
+        return placed.keys.count { it !in frozen && !it.isAtRest }
+    }
 
     /** 台から落ちたパーツをワールドから外して返す。 */
     fun removeFallen(): List<Part> {
+        checkOpen()
         val fallen = placed.keys.filter { it.worldCenter.y < fallThresholdY }
         val parts = fallen.map { placed.remove(it)!! }
         fallen.forEach {
@@ -196,6 +241,7 @@ class StackWorld(
 
     /** 台の上面から、残っているパーツの最高点までの高さ [m]。 */
     fun height(): Double {
+        checkOpen()
         var maxY = 0.0
         for (b in placed.keys) {
             val aabb = b.createAABB()
@@ -205,18 +251,22 @@ class StackWorld(
     }
 
     /** 保存用の最終配置。 */
-    fun placements(): List<Placement> = placed.map { (b, p) ->
-        val t = b.transform
-        Placement(
-            partId = p.id,
-            x = t.translationX.toFloat(),
-            y = t.translationY.toFloat(),
-            angleRad = t.rotationAngle.toFloat(),
-            scale = (scales[b] ?: 1.0).toFloat(),
-        )
+    fun placements(): List<Placement> {
+        checkOpen()
+        return placed.map { (b, p) ->
+            val t = b.transform
+            Placement(
+                partId = p.id,
+                x = t.translationX.toFloat(),
+                y = t.translationY.toFloat(),
+                angleRad = t.rotationAngle.toFloat(),
+                scale = (scales[b] ?: 1.0).toFloat(),
+            )
+        }
     }
 
     fun clear() {
+        checkOpen()
         placed.keys.forEach { world.removeBody(it) }
         placed.clear()
         visuals.clear()
@@ -230,23 +280,24 @@ class StackWorld(
      * 置いたパーツ 1 つ（[place] が返す）の持ち手。物理エンジンのボディは中に隠し、使う側には位置・速さなどだけを見せる。
      * iOS 版で物理エンジンを替えるときに、StackWorld の外を直さずに済むようにするため
      */
-    class Piece internal constructor(internal val body: Body) {
+    class Piece internal constructor(internal val body: Body, private val owner: StackWorld) {
         /** 重心の位置 [m] */
-        val centerX: Double get() = body.worldCenter.x
-        val centerY: Double get() = body.worldCenter.y
+        val centerX: Double get() { owner.checkOpen(); return body.worldCenter.x }
+        val centerY: Double get() { owner.checkOpen(); return body.worldCenter.y }
 
         /** 速さ [m/s] */
-        val velocityX: Double get() = body.linearVelocity.x
-        val velocityY: Double get() = body.linearVelocity.y
+        val velocityX: Double get() { owner.checkOpen(); return body.linearVelocity.x }
+        val velocityY: Double get() { owner.checkOpen(); return body.linearVelocity.y }
 
         /** 当たり判定の形（角ばった多角形）の数 */
-        val shapeCount: Int get() = body.fixtureCount
+        val shapeCount: Int get() { owner.checkOpen(); return body.fixtureCount }
 
         /** 当たり判定の形ごとの、面の摩擦 */
-        val frictions: List<Double> get() = body.fixtures.map { it.friction }
+        val frictions: List<Double> get() { owner.checkOpen(); return body.fixtures.map { it.friction } }
 
         /** この速さ [m/s] で動かす。止まっていたパーツも起こして動かす */
         fun push(vx: Double, vy: Double) {
+            owner.checkOpen()
             body.setAtRest(false)
             body.setLinearVelocity(vx, vy)
         }
@@ -298,6 +349,7 @@ class StackWorld(
      * 台は fixture の形、パーツは見た目の形（丸い。[PartGeometry.shapes]）。当たり判定の角ばった形は描かない
      */
     fun renderShapes(): List<RenderShape> {
+        checkOpen()
         val out = ArrayList<RenderShape>()
         appendShapes(platform, null, out)
         for ((b, p) in placed) appendVisual(b, p, out)
@@ -387,7 +439,30 @@ class StackWorld(
         }
     }
 
+    // 数えるのは、作り終わった最後（途中で例外が出たら、作れていないので数えない。プロパティの初期化はこの上で済んでいる）
+    init {
+        openNow.incrementAndGet()
+        synchronized(live) { live[this] = Unit }
+    }
+
     companion object {
+        /** 作った数 − 閉じた数。ガベージコレクタに片付けられても減らないので、閉じ忘れはそのまま数に残る */
+        private val openNow = AtomicInteger()
+
+        /** まだ閉じていないワールドの数。閉じ忘れを見つけるのに使う（テストで、作り直しても増えないことを確かめる） */
+        val openCount: Int get() = openNow.get()
+
+        /**
+         * まだ閉じていないワールド（テストの後始末 [closeAllForTest] 用）。弱い参照で持つので、閉じ忘れたワールドも
+         * ガベージコレクタは片付けられる（アプリでメモリを漏らさない。今の dyn4j では、閉じなくても前と同じ動き）
+         */
+        private val live = WeakHashMap<StackWorld, Unit>()
+
+        /** まだ閉じていないワールドを、全部閉じる。テストの後始末用（アプリでは、作った側が閉じる） */
+        fun closeAllForTest() {
+            synchronized(live) { live.keys.toList() }.forEach { it.close() }
+        }
+
         const val PLATFORM_TAG = "platform"
 
         /** 台の図形の [RenderShape.body]（置いたパーツは 1 から） */

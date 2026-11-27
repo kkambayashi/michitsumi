@@ -15,10 +15,14 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import java.time.LocalDate
+import org.junit.After
 import org.junit.Test
 
 /** POST /towers で断るタワーと、通すタワー（TowerValidation.kt） */
 class TowerValidationTest {
+    /** テストで作った物理ワールドを閉じる（閉じ忘れても、次のテストに持ち越さない） */
+    @After fun closeWorlds() = StackWorld.closeAllForTest()
+
 
     private val parts = SampleParts.all.take(2)
     private val ok = Tower(

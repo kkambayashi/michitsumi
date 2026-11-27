@@ -130,9 +130,13 @@ class ChallengeRun(
     val runId: String = UUID.randomUUID().toString(),
     private val clock: () -> Long = System::nanoTime,
     private val wallClock: () -> Long = System::currentTimeMillis,
+    /** この回の物理ワールド。渡したものも含めて、この回が持ち主になり、[close] で閉じる */
     private val world: StackWorld = StackWorld(platformWidth = ChallengeRules.PLATFORM_WIDTH_M),
-) {
+) : AutoCloseable {
     enum class Phase { AIMING, FALLING, FINALIZING, FINISHED, UNRESOLVED }
+
+    /** この回を捨てるときに呼ぶ。物理ワールドを閉じる（[StackWorld.close]）。閉じたあとは進められない */
+    override fun close() = world.close()
 
     private val pieces = ChallengePieces(seed)
     var phase = Phase.AIMING; private set
