@@ -252,7 +252,7 @@ class StackWorld(
         }
     }
 
-    // ---- テスト用（物理エンジンの型を出さずに、テストから中を動かす。同じモジュールのテストだけが使える） ----
+    // ---- テスト用（物理エンジンの型を出さずに、テストから中を動かす。internal なので :core の外からは使えない） ----
 
     /** 重さの向きと大きさ [m/s²] を変える（0 にすると、置いた形が浮いたままになる） */
     internal fun setGravityForTest(x: Double, y: Double) {
@@ -271,8 +271,8 @@ class StackWorld(
         placed.keys.last().translate(dx, dy)
     }
 
-    /** パーツどうしが触れたときの摩擦の決め方（[GripMixer]） */
-    internal fun mixFrictionForTest(friction1: Double, friction2: Double): Double = GripMixer.mixFriction(friction1, friction2)
+    /** パーツどうしが触れたときの摩擦。このワールドに設定した混ぜ方（[GripMixer]）を通す（設定し忘れたら、テストで分かるように） */
+    internal fun mixFrictionForTest(friction1: Double, friction2: Double): Double = world.valueMixer.mixFriction(friction1, friction2)
 
     /** [piece] がいま触れている接触ごとの摩擦（台との接触は、[PlatformGrip] で置き換えたあとの値） */
     internal fun contactFrictionsForTest(piece: Piece): List<Double> = world.getContacts(piece.body).map { it.friction }
