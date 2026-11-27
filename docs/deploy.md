@@ -206,6 +206,78 @@ gcloud run services update road-collector --region asia-northeast1 \
 
 使える環境変数は `server/README.md`（`TOWER_STORE` / `TOWER_COLLECTION` / `PART_NAMER` / `GEMINI_MODEL` / `GEMINI_LOCATION` / `PUBLIC_BASE_URL`）。
 
+## G. データを戻す（Firestore のバックアップから）
+
+Firestore（`(default)`）は、毎日バックアップを取って 7 日分残している（2026-11-27 から）。データベースには削除保護をかけてあるので、データベースごと消すことはできない。タワーを 1 基ずつ消したり書き換えたりするのは、今までどおりできる。
+
+バックアップは、今のデータベースに直接は書き戻せない。**新しいデータベースに復元してから、要るものだけ本番に移す。** サーバはいつも `(default)` を読み書きするので、復元したデータベースを本番がそのまま使うことはない。
+
+- 復元（1）と全部を戻す（3）は、まだ実際に試していない（2026-11-27 時点）。コマンドの形は gcloud のヘルプで確かめた。2 の「読んで本番に書く」は、`towers_preview` で別の id に写して、サーバから読めることを確かめた
+- 費用：保管は 1 GiB あたり月 0.03 ドルほど、復元は 1 GiB あたり 0.2 ドルほど。今のデータは 1 MB に届かないので、どちらも 1 円未満
+
+### 1. バックアップを選んで、新しいデータベースに復元する
+
+```bash
+P=hackathon-2026-513703
+
+# 毎日の予定（retention: 604800s = 7 日）
+gcloud firestore backups schedules list --database='(default)' --project=$P
+
+# バックアップの一覧。snapshotTime が「いつの状態か」
+gcloud firestore backups list --project=$P --location=asia-northeast1 \
+  --format='table(name.basename(),database,snapshotTime,state)'
+
+# 選んだバックアップを、新しいデータベースに復元する（名前は自由。ここでは restore-日付）
+R=restore-20261127
+gcloud firestore databases restore --project=$P \
+  --source-backup=projects/$P/locations/asia-northeast1/backups/<バックアップの ID> \
+  --destination-database=$R
+#   終わるまで少しかかる。終わったかは次で見る
+gcloud firestore operations list --database=$R --project=$P
+```
+
+### 2. 要るタワーだけ本番に戻す（消してしまった 1 基を戻すなど）
+
+```bash
+COL=towers               # 3 分チャレンジは towers_challenge、毎日 1 つずつ積むは towers_daily
+ID='戻したいタワーの id'
+TOKEN=$(gcloud auth print-access-token)
+BASE="https://firestore.googleapis.com/v1/projects/$P/databases"
+
+# 復元したデータベースから読み、中身（fields）だけを取り出す
+curl -sS -H "Authorization: Bearer $TOKEN" "$BASE/$R/documents/$COL/$ID" \
+  | python3 -c 'import json,sys; print(json.dumps({"fields": json.load(sys.stdin)["fields"]}))' > /tmp/tower.json
+
+# 本番に書く。末尾の currentDocument.exists=false は「その id の文書が今無いときだけ書く」の条件
+#   （消してしまったものを戻すとき）。壊れた中身を前の状態に戻すときは、この条件を外して上書きする
+curl -sS -o /dev/null -w '%{http_code}\n' -X PATCH \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' --data @/tmp/tower.json \
+  "$BASE/(default)/documents/$COL/$ID?currentDocument.exists=false"
+#   200 なら戻った。409 なら、その id の文書がもう本番にある（上書きしたいなら、条件を外す）
+
+# 一覧に出る（サーバは一覧を 20 秒覚えているので、出るまで少し待つ）
+curl -s https://road-collector-415368216017.asia-northeast1.run.app/towers | grep -c "$ID"
+```
+
+### 3. 全部を戻すとき
+
+復元したデータベースを Cloud Storage に書き出し、本番に読み込む。読み込むと、同じ id の文書は上書きされる。バックアップのあとに増えた文書は、消えずに残る。
+
+```bash
+gcloud storage buckets create gs://$P-firestore-restore --location=asia-northeast1 --project=$P
+gcloud firestore export gs://$P-firestore-restore/$R --database=$R --project=$P
+gcloud firestore import gs://$P-firestore-restore/$R --database='(default)' --project=$P
+```
+
+- 書き出しや読み込みが権限のエラーで止まったら、Firestore のサービスエージェント（`service-415368216017@gcp-sa-firestore.iam.gserviceaccount.com`）に、このバケットの `roles/storage.admin` を付ける
+
+### 4. 片付け
+
+```bash
+gcloud firestore databases delete --database=$R --project=$P
+gcloud storage rm -r gs://$P-firestore-restore      # 3 で作ったときだけ
+```
+
 ## お試し用を片付けるとき（しばらく使わないとき）
 
 ```bash
