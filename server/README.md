@@ -96,7 +96,7 @@ curl -sS -i "$BASE_URL/towers"
 | 返った id で `GET` が 200 | 読み取りの権限があり、保存したものを取り出せた |
 | 再起動後も同じ id で取れる | メモリではなく Firestore に残っている |
 
-Cloud Run のサービスアカウントには `roles/datastore.user` を付与済みなので、デプロイするだけで Firestore 版になる。
+Cloud Run は専用のサービスアカウント `road-collector-server@hackathon-2026-513703.iam.gserviceaccount.com`（`roles/datastore.user` と `roles/aiplatform.user` だけ）で動かすので、デプロイするだけで Firestore 版になる（`docs/deploy.md`）。
 
 ## パーツの命名（POST /parts/name）
 
@@ -114,7 +114,7 @@ Cloud Run のサービスアカウントには `roles/datastore.user` を付与�
 - `GEMINI_MODEL`：既定 `gemini-3.5-flash-lite`
 - `GEMINI_LOCATION`：既定 `global`（3.5-flash-lite は東京にはない）
 
-手元で本物の Gemini を試す（Vertex AI API は有効化済み。Cloud Run のサービスアカウントは編集者なので、権限の追加は不要）：
+手元で本物の Gemini を試す（Vertex AI API は有効化済み。手元では自分の Google アカウントで呼ぶので、権限の追加は不要）：
 
 ```
 gcloud auth application-default login     # 最初の 1 回だけ

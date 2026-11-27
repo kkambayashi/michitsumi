@@ -237,7 +237,7 @@ fun CollectScreen(
         val playing = vm.playingLabel
         val status = when {
             playing != null -> StatusLine("${playing}を再生中", Fieldbook.Survey)
-            nearLimit -> StatusLine("速めです（${CollectViewModel.kmh(recentSpeed!!)}）・${CollectViewModel.kmhInt(vm.walkMaxSpeedMps)} km で止まります", RecordingRed)
+            nearLimit -> StatusLine("速めです（${CollectViewModel.kmh(recentSpeed)}）・${CollectViewModel.kmhInt(vm.walkMaxSpeedMps)} km で止まります", RecordingRed)
             isRecording -> StatusLine("記録中（画面を閉じても続きます）", RecordingRed)
             else -> null
         }
@@ -660,7 +660,7 @@ private fun TrackMap(points: List<TrackPoint>, recording: Boolean, playingDemo: 
                 }
             }
             // 記録していない間：今いる場所に止まった黄色の人と、向いている方位の三角。位置のずれの大きさを薄い青緑の円で
-            if (showIdleDot && idle != null) {
+            if (showIdleDot) {
                 val here = LatLng(idle.lat, idle.lng)
                 if (idle.accuracyM > 0f) {
                     Circle(

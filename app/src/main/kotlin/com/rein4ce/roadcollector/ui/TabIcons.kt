@@ -81,7 +81,6 @@ internal fun TabIcon(dest: Dest, selected: Boolean, animate: Boolean, tint: Colo
                     Dest.Inventory -> drawOpeningNotebook(play.value, tint)
                     Dest.Stack -> drawStackingBlocks(play.value, tint)
                     Dest.Gallery -> drawShiningTrophy(play.value, tint)
-                    else -> Unit
                 }
             }
         }
