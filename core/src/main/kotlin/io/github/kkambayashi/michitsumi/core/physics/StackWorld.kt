@@ -215,7 +215,7 @@ class StackWorld(
         pendingTime += elapsedSeconds.coerceIn(0.0, 0.1)
         var steps = 0
         while (pendingTime >= STEP_SECONDS && steps < MAX_STEPS) {
-            world.step(STEP_SECONDS.toFloat(), SUB_STEPS)
+            world.step(STEP_SECONDS.toFloat(), subStepsForTest)
             pendingTime -= STEP_SECONDS
             updateRestTimes()
             steps++
@@ -357,6 +357,17 @@ class StackWorld(
     }
 
     // ---- テスト用（物理エンジンの型を出さずに、テストから中を動かす。internal なので :core の外からは使えない） ----
+
+    // TUNING（試しの一時的なつまみ。コミットしない）
+    internal var subStepsForTest = SUB_STEPS
+    internal fun contactTuningForTest(hertz: Double, dampingRatio: Double, pushSpeed: Double) =
+        world.setContactTuning(hertz.toFloat(), dampingRatio.toFloat(), pushSpeed.toFloat())
+    internal fun localPolygonsForTest(piece: Piece): List<List<Pair<Double, Double>>> =
+        piece.body.getShapes().map { sh -> sh.getPolygon().vertices.map { it.x.toDouble() to it.y.toDouble() } }
+    internal fun continuousForTest(on: Boolean) { world.isContinuousEnabled = on }
+    internal fun sleepingForTest(on: Boolean) { world.isSleepingEnabled = on }
+    internal fun angleForTest(piece: Piece): Double = piece.body.angle.toDouble()
+    internal fun angularVelocityForTest(piece: Piece): Double = piece.body.angularVelocity.toDouble()
 
     /** 置いたパーツの重さ [kg]（形と密度から決まる） */
     internal fun massForTest(piece: Piece): Double = piece.body.mass.toDouble()
